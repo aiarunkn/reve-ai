@@ -12,7 +12,7 @@ const TABS = [
   { key: 'players', label: 'Players', icon: UserCircle },
 ];
 
-export default function StoryJournal({ story, mood, places, onClose, onDelete }) {
+export default function StoryJournal({ story, mood, places, portraits = [], onClose, onDelete }) {
   const [tab, setTab] = useState('cast');
   const me = story.players[0];
   const L = story.ledger;
@@ -46,10 +46,11 @@ export default function StoryJournal({ story, mood, places, onClose, onDelete })
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           {tab === 'cast' && (
             <ul className="space-y-4">
-              {story.bible.cast.map((c) => {
+              {story.bible.cast.map((c, k) => {
                 const r = L.relationships[relKey(c.name, me.name)] || { score: 0, notes: [] };
                 return (
                   <li key={c.name} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    {portraits[k] && <img src={portraits[k]} alt={`Portrait of ${c.name}`} className="mb-3 aspect-[4/5] w-full rounded-xl object-cover" />}
                     <div className="flex items-baseline justify-between gap-2">
                       <p className="font-serif text-xl text-parchment">{c.name}</p>
                       <span className="text-[11px] uppercase tracking-wider" style={{ color: r.score >= 2 ? mood.primary : r.score <= -2 ? '#f0a0a8' : 'rgba(243,233,215,0.5)' }}>{relationshipLabel(r.score)}</span>

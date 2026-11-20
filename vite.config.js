@@ -4,11 +4,11 @@ import tailwindcss from '@tailwindcss/vite';
 
 // Runs the /api/* Vercel functions inside the Vite dev & preview servers, so
 // `npm run dev` behaves like production. Secrets (no VITE_ prefix) stay server-side.
-const ROUTES = ['panorama', 'reve', 'story'];
+const ROUTES = ['panorama', 'reve', 'story', 'media'];
 
 function apiRoutes(mode) {
   const mount = (server, ssrLoad) => {
-    Object.assign(process.env, loadEnv(mode, process.cwd(), ['BLOCKADE_', 'ANTHROPIC_']));
+    Object.assign(process.env, loadEnv(mode, process.cwd(), ['BLOCKADE_', 'ANTHROPIC_', 'OPENAI_']));
     for (const name of ROUTES) {
       server.middlewares.use(`/api/${name}`, async (req, res) => {
         req.url = req.originalUrl || req.url; // keep the query string for the handler

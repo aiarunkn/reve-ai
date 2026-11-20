@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, BookMarked, SendHorizontal, MapPin, Hourglass } from 'lucide-react';
+import { ArrowLeft, BookMarked, SendHorizontal, MapPin, Hourglass, Volume2, VolumeX, Headphones, Play, Square, Brush } from 'lucide-react';
 import ConsequenceChip from './ConsequenceChip';
 import ParticleCanvas from './ParticleCanvas';
 import StoryJournal from './StoryJournal';
 import { getMood } from '../data/moods';
 import { loadStory, saveStory, loadPlaceImages, applyRecord } from '../services/storyStore';
 import { playTurn, welcomeBack, summarizeTurns, NotConfiguredError } from '../services/storyClient';
+import { getAsset, onAsset } from '../services/assetStore';
+import { ensureStoryArt, illustrateMoment, ImagesNotConfigured } from '../services/storyArt';
+import { readAloud, voiceSupported } from '../services/voiceService';
+import { ambient } from '../services/ambientAudio';
+
+const pref = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch { return d; } };
+const setPref = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { /* private mode */ } };
 
 const AWAY_HOURS_FOR_RECAP = 8;
 const KEEP_VERBATIM = 6; // rounds sent in full; older ones get folded into the summary
@@ -33,6 +40,14 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
   const [journal, setJournal] = useState(false);
   const [recap, setRecap] = useState(null);
   const [error, setError] = useState('');
+  const [soundOn, setSoundOn] = useState(() => pref('reve-ai:story-sound', false));
+  const [autoRead, setAutoRead] = useState(() => pref('reve-ai:story-read', false));
+  const [speaking, setSpeaking] = useState(null); // { turn, speaker }
+  const [moments, setMoments] = useState({}); // turn index -> image URL
+  const [portraits, setPortraits] = useState([]);
+  const [drawing, setDrawing] = useState(null);
+  const [artOff, setArtOff] = useState(false);
+  const speechRef = useRef(null);
   const storyRef = useRef(null);
   const scrollRef = useRef(null);
   const abortRef = useRef(null);
@@ -51,7 +66,18 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
       const s = await loadStory(storyId);
       if (!alive || !s) return;
       setStory(s);
-      loadPlaceImages(storyId, s.bible.places.length).then((u) => { urls = u; if (alive) setPlaces(u); });
+      loadPlaceImages(storyId, s.bible.places.length).then((u) => { urls.push(...u); if (alive) setPlaces(u); });
+      Promise.all(s.bible.cast.map((_, k) => getAsset(storyId, `portrait${k}`))).then((bs) => {
+        const u = bs.map((b) => (b ? URL.createObjectURL(b) : null));
+        urls.push(...u);
+        if (alive) setPortraits(u);
+      });
+      Promise.all(s.turns.map((t, i) => (t.art ? getAsset(storyId, `moment${i}`).then((b) => [i, b]) : null)).filter(Boolean)).then((pairs) => {
+        const m = {};
+        pairs.forEach(([i, b]) => { if (b) { m[i] = URL.createObjectURL(b); urls.push(m[i]); } });
+        if (alive) setMoments(m);
+      });
+      ensureStoryArt(s); // draws missing places and portraits in the background
       const awayHours = (Date.now() - new Date(s.lastPlayedAt).getTime()) / 36e5;
       if (awayHours >= AWAY_HOURS_FOR_RECAP && s.turns.length > 1) {
         setBusy(true);
@@ -77,6 +103,55 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
     })();
     return () => { alive = false; urls.forEach((u) => u && URL.revokeObjectURL(u)); abortRef.current?.abort(); };
   }, [storyId, commit]);
+
+  // new illustrations arriving from the background art queue
+  useEffect(() => onAsset(storyId, async (kind) => {
+    const blob = await getAsset(storyId, kind);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const m = kind.match(/^(place|portrait|moment)(\d+)$/);
+    if (!m) return;
+    const i = Number(m[2]);
+    if (m[1] === 'place') setPlaces((p) => { const n = [...p]; n[i] = url; return n; });
+    if (m[1] === 'portrait') setPortraits((p) => { const n = [...p]; n[i] = url; return n; });
+    if (m[1] === 'moment') setMoments((p) => ({ ...p, [i]: url }));
+  }), [storyId]);
+
+  // ambience follows the story's feeling; voices stop when you leave
+  useEffect(() => {
+    if (soundOn && story) ambient.play(story.bible.mood);
+    else ambient.stop();
+  }, [soundOn, story?.bible.mood]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { ambient.stop(); speechRef.current?.stop(); }, []);
+
+  const listen = useCallback(async (turnIndex) => {
+    speechRef.current?.stop();
+    const s = storyRef.current;
+    const t = s?.turns[turnIndex];
+    if (!t?.narration) return;
+    setSpeaking({ turn: turnIndex, speaker: null });
+    speechRef.current = await readAloud(s, t.narration, {
+      onSpeaker: (speaker) => setSpeaking((cur) => (cur ? { ...cur, speaker } : cur)),
+      onDone: () => setSpeaking((cur) => (cur?.turn === turnIndex ? null : cur)),
+    });
+  }, []);
+  const stopListening = () => { speechRef.current?.stop(); setSpeaking(null); };
+
+  const illustrate = async (turnIndex) => {
+    if (drawing !== null) return;
+    setDrawing(turnIndex);
+    setError('');
+    try {
+      await illustrateMoment(storyRef.current, turnIndex);
+      const cur = storyRef.current;
+      commit({ ...cur, turns: cur.turns.map((t, i) => (i === turnIndex ? { ...t, art: true } : t)) });
+    } catch (err) {
+      if (err instanceof ImagesNotConfigured) { setArtOff(true); setError('Illustrations need an OpenAI API key on the server (OPENAI_API_KEY).'); }
+      else setError(err.message);
+    } finally {
+      setDrawing(null);
+    }
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -119,6 +194,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
       }
       commit(next);
       maybeSummarize(next);
+      if (autoRead) setTimeout(() => listen(index), 50);
     } catch (err) {
       if (err.name === 'AbortError') return;
       setDraft(t);
@@ -156,7 +232,17 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
           <p className="truncate font-serif text-lg italic text-parchment sm:text-2xl">{story.bible.title}</p>
           <p className="truncate text-[10px] uppercase tracking-[0.22em]" style={{ color: mood.primary }}>Chapter {story.chapter.n} · {story.time}</p>
         </div>
-        <button type="button" onClick={() => setJournal(true)} className="glass-btn inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-parchment/85"><BookMarked size={16} /> <span className="hidden sm:inline">Journal</span></button>
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => { const v = !soundOn; setSoundOn(v); setPref('reve-ai:story-sound', v); }} aria-pressed={soundOn} aria-label={soundOn ? 'Turn ambience off' : 'Turn ambience on'} title="Ambient sound" className="glass-btn rounded-full p-2.5 text-parchment/80" style={soundOn ? { color: mood.primary, borderColor: `${mood.primary}88` } : undefined}>
+            {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
+          {voiceSupported && (
+            <button type="button" onClick={() => { const v = !autoRead; setAutoRead(v); setPref('reve-ai:story-read', v); if (!v) stopListening(); }} aria-pressed={autoRead} aria-label={autoRead ? 'Stop reading new passages aloud' : 'Read new passages aloud'} title="Read aloud" className="glass-btn rounded-full p-2.5 text-parchment/80" style={autoRead ? { color: mood.primary, borderColor: `${mood.primary}88` } : undefined}>
+              <Headphones size={16} />
+            </button>
+          )}
+          <button type="button" onClick={() => setJournal(true)} className="glass-btn inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-parchment/85"><BookMarked size={16} /> <span className="hidden sm:inline">Journal</span></button>
+        </div>
       </header>
 
       {/* the story so far */}
@@ -172,7 +258,26 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
                   {t.actions.map((a) => <span key={a.player} className="block"><span className="not-italic text-parchment/45">{a.player === me.name ? 'You' : a.player}:</span> {a.text}</span>)}
                 </p>
               )}
+              {moments[i] && (
+                <motion.img src={moments[i]} alt="An illustration of this moment" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1 }} className="mb-5 w-full rounded-2xl border border-white/10 object-cover" style={{ boxShadow: `0 20px 60px -20px ${mood.glow}` }} />
+              )}
               {t.narration && <Narration text={t.narration} />}
+              {t.narration && (
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-parchment/45">
+                  {voiceSupported && (speaking?.turn === i ? (
+                    <button type="button" onClick={stopListening} className="inline-flex items-center gap-1.5 hover:text-parchment" style={{ color: mood.primary }}>
+                      <Square size={11} fill="currentColor" /> {speaking.speaker && speaking.speaker !== 'narrator' ? `${speaking.speaker.split(' ')[0]} is speaking…` : 'Reading…'}
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => listen(i)} className="inline-flex items-center gap-1.5 hover:text-parchment"><Play size={11} fill="currentColor" /> Listen</button>
+                  ))}
+                  {!moments[i] && !artOff && (
+                    <button type="button" onClick={() => illustrate(i)} disabled={drawing !== null} className="inline-flex items-center gap-1.5 hover:text-parchment disabled:opacity-50">
+                      <Brush size={12} /> {drawing === i ? 'Painting this moment…' : 'Illustrate this moment'}
+                    </button>
+                  )}
+                </div>
+              )}
               {t.kind === 'interlude' && (
                 <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
                   <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.25em]" style={{ color: mood.primary }}><Hourglass size={12} /> while you were away</p>
@@ -241,7 +346,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
             </motion.div>
           </motion.div>
         )}
-        {journal && <StoryJournal story={story} mood={mood} places={places} onClose={() => setJournal(false)} onDelete={onDelete} />}
+        {journal && <StoryJournal story={story} mood={mood} places={places} portraits={portraits} onClose={() => setJournal(false)} onDelete={onDelete} />}
       </AnimatePresence>
     </div>
   );

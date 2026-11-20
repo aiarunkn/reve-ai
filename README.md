@@ -15,6 +15,12 @@ live anywhere else, your decisions have lasting consequences, and the world reme
 - **Lasting consequences**: every turn records consequences ("Théo knows you tried to destroy your best work"),
   relationship changes, canon facts and opened/closed threads into a ledger the narrator always reads.
 - **Come back weeks later**: a "Previously…" recap, and the world has moved on a little while you were away.
+- **Illustrated**: places and character portraits are painted by an image model in one consistent style
+  (cached once per story), and any passage can be illustrated with "Illustrate this moment".
+- **Read aloud**: a narrator voice plus a distinct voice per character (dialogue is split by speaker).
+  Today this uses the browser's built-in voices; a paid voice service can replace them in one place
+  (`api/media.js` → `voice`, and `VITE_VOICE_PROVIDER=server`).
+- **Sound**: a generative ambient soundscape for the story's feeling, which softens while voices read.
 - **Journal**: the cast and where you stand with each of them, open threads, your choices next to their
   consequences, places, and players.
 - **Built for multiplayer**: every turn is a round with one action per player. Until a friend joins, the
@@ -71,6 +77,17 @@ retries it on a fallback model (`fallbacks: "default"`).
 memory and recent conversation (cached between turns). To spend less, switch `MODEL` in `api/reve.js`
 to `claude-haiku-5-5`. Before sharing the site publicly, add rate limiting or a login: anyone with the
 URL could otherwise run up your bill.
+
+## Illustrations (OpenAI API key)
+
+Story art goes through `api/media.js`, which calls OpenAI's image model (`gpt-image-2.5-flare` by default).
+Add `OPENAI_API_KEY` in Vercel (Settings → Environment Variables) or `.env.local`, then redeploy/restart.
+Without it, stories still work with painted photos and gradients. Each story draws its places and
+portraits once (roughly 6–10 images), plus any moments you choose to illustrate. Set
+`OPENAI_IMAGE_QUALITY=low` to spend less.
+
+OpenAI's text-to-speech models (`tts-1`, `tts-1-hd`, `gpt-4o-mini-tts`) shut down on 2027-01-06, so voices
+use the browser for now.
 
 ## Turning on AI 360° worlds (Blockade Labs)
 

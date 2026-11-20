@@ -96,6 +96,7 @@ const Bible = z.object({
     wants: z.string().describe('What they are after'),
     secret: z.string(),
     bond: z.string().describe('How they relate to the players at the start, under 18 words'),
+    voice_tone: z.enum(['low', 'medium', 'high']).describe('Where their speaking voice sits, used for read-aloud'),
   })).describe('3-5 non-player characters with their own goals'),
   threads: z.array(z.string()).describe('3 open storylines, each under 14 words'),
   opening: z.object({
