@@ -121,7 +121,7 @@ export default function App() {
 
       // a hand-painted 360° world right away; the AI one (if configured) replaces it later
       setWeaving((w) => ({ ...w, stage: 'world' }));
-      await putAsset(id, 'pano-local', await paintPanorama(image, mood));
+      await putAsset(id, 'pano-local-v2', await paintPanorama(image, mood));
       const job = await startAIPanorama(file, mood, title);
 
       const memory = { id, title, message, mood, image, createdAt: new Date().toISOString(), panoJob: job?.jobId ?? null };

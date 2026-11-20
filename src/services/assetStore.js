@@ -1,7 +1,7 @@
 /**
  * Large per-memory assets (depth maps, 360° panoramas) live in IndexedDB,
  * which holds far more than localStorage. Keys look like `<memoryId>:<kind>`.
- *   kinds: 'depth' | 'pano' (AI) | 'pano-local' (painted in the browser)
+ *   kinds: 'depth' | 'pano' (AI) | 'pano-local-v2' (painted in the browser)
  */
 const DB = 'reve-ai';
 const STORE = 'assets';
@@ -53,7 +53,7 @@ export async function putAsset(id, kind, blob) {
 export async function deleteAssets(id) {
   try {
     await tx('readwrite', (s) => {
-      ['depth', 'pano', 'pano-local'].forEach((k) => s.delete(`${id}:${k}`));
+      ['depth', 'pano', 'pano-local-v2'].forEach((k) => s.delete(`${id}:${k}`));
     });
   } catch {
     /* nothing to delete */

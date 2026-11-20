@@ -61,10 +61,10 @@ export function useMemoryWorld(memory) {
     (async () => {
       const ai = await getAsset(memory.id, 'pano');
       if (ai) return show(ai, 'ai');
-      let local = await getAsset(memory.id, 'pano-local');
+      let local = await getAsset(memory.id, 'pano-local-v2');
       if (!local) {
         local = await paintPanorama(image, memory.mood);
-        putAsset(memory.id, 'pano-local', local);
+        putAsset(memory.id, 'pano-local-v2', local);
       }
       show(local, 'local');
     })();
