@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Sprout, Plus, Sparkles, Feather } from 'lucide-react';
+import { Sprout, Plus, Sparkles, Feather, ArrowRight } from 'lucide-react';
 import { loadScenes } from '../services/worldStore';
 import { loadPlaceImages } from '../services/storyStore';
 import { getMood } from '../data/moods';
@@ -101,6 +101,7 @@ export default function WorldMap({ memories, worlds = [], stories = [], onEnter,
     if (restoreScroll) window.scrollTo(0, restoreScroll);
   }, [restoreScroll]);
   const covers = useWorldCovers(worlds);
+  const [premise, setPremise] = useState('');
   const storyCovers = useStoryCovers(stories);
   const storyPortals = [...stories].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).map((s) => ({ id: s.id, title: s.title, mood: s.mood, createdAt: s.updatedAt || s.createdAt, image: storyCovers[s.id] || null }));
   const worldPortals = worlds.map((w) => ({ id: w.id, title: w.bible.world_name, mood: w.bible.mood, createdAt: w.createdAt, image: covers[w.id] || null }));
@@ -126,17 +127,25 @@ export default function WorldMap({ memories, worlds = [], stories = [], onEnter,
           <p className="mt-5 max-w-md font-serif text-lg italic text-parchment/65 sm:text-xl">
             Live the stories you can’t live anywhere else. Your choices last, and the world remembers you.
           </p>
-          <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
-            <motion.button
-              type="button"
-              onClick={onBegin}
-              whileHover={{ scale: 1.04 }}
-              whileTap={{ scale: 0.97 }}
-              className="btn-lantern inline-flex items-center gap-2.5 rounded-full px-7 py-3.5 text-sm font-medium tracking-wide"
-            >
-              <Feather size={18} strokeWidth={2} />
-              Begin a Story
-            </motion.button>
+          <form
+            onSubmit={(e) => { e.preventDefault(); const p = premise.trim(); if (p.length >= 8) onBegin(p); }}
+            className="mt-9 flex w-full max-w-xl items-center gap-2 rounded-full border border-gold/40 bg-midnight/60 p-1.5 pl-5 shadow-[0_0_40px_-10px_rgba(245,184,90,0.5)] backdrop-blur"
+          >
+            <Feather size={18} className="shrink-0 text-gold" />
+            <input
+              value={premise}
+              onChange={(e) => setPremise(e.target.value)}
+              maxLength={600}
+              placeholder="What world do you want to live in?"
+              aria-label="Describe the world you want to live in"
+              className="min-w-0 flex-1 bg-transparent py-2.5 text-[15px] text-parchment placeholder:text-parchment/45 focus:outline-none"
+            />
+            <button type="submit" disabled={premise.trim().length < 8} className="btn-lantern inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-medium disabled:opacity-40 disabled:[animation:none]">
+              Enter <ArrowRight size={15} />
+            </button>
+          </form>
+          <p className="mt-3 text-xs text-parchment/45">e.g. “1920s Paris: my best friend and I are rival artists”</p>
+          <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
             <button type="button" onClick={onImagine} className="glass-btn inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm text-parchment/80 hover:text-parchment">
               <Sparkles size={16} /> Imagine a World
             </button>
@@ -155,7 +164,7 @@ export default function WorldMap({ memories, worlds = [], stories = [], onEnter,
               <MemoryPortal memory={s} index={i} onEnter={() => onEnterStory(s.id)} />
             </div>
           ))}
-          <EmptyIsland onClick={onBegin} label={stories.length ? 'begin another story' : 'begin your first story'} icon={Feather} index={stories.length} />
+          <EmptyIsland onClick={() => document.querySelector('input[aria-label="Describe the world you want to live in"]')?.focus()} label={stories.length ? 'begin another story' : 'begin your first story'} icon={Feather} index={stories.length} />
         </section>
 
         <SectionTitle sub={worlds.length ? 'Places built from your photos, each with someone waiting in it.' : 'Five photos and a few words become a place, and someone who lives there.'}>

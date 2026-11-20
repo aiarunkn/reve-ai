@@ -99,6 +99,13 @@ const Bible = z.object({
     voice_tone: z.enum(['low', 'medium', 'high']).describe('Where their speaking voice sits, used for read-aloud'),
   })).describe('3-5 non-player characters with their own goals'),
   threads: z.array(z.string()).describe('3 open storylines, each under 14 words'),
+  protagonist: z.object({
+    name: z.string(),
+    look: z.string().describe('1 sentence'),
+    want: z.string().describe('What they want most, 1 sentence'),
+    secret: z.string().describe('A secret only they and the narrator know'),
+    tag: z.string().describe('A short label shown under their name, e.g. "House Ashgrove · Year 5" or "Painter · Montparnasse"'),
+  }).describe('The player character. If the player described themselves, use that; otherwise invent someone who fits the premise'),
   opening: z.object({
     chapter_title: z.string(),
     time: z.string().describe('In-world time, e.g. "Spring 1926 — a Tuesday, near midnight"'),
@@ -119,9 +126,10 @@ function playersBlock(players = []) {
   }).join('\n');
 }
 
-async function begin({ premise, players, photos = [] }) {
+async function begin({ premise, players = [], photos = [] }) {
   if (!premise || typeof premise !== 'string') throw httpError(400, 'Describe your story first.');
-  if (!Array.isArray(players) || !players.length || !players[0]?.name) throw httpError(400, 'Create your character first.');
+  if (!Array.isArray(players)) throw httpError(400, 'Players must be a list.');
+  const invent = !players[0]?.name;
   if (photos.length > 5) throw httpError(400, 'Up to 5 photos.');
   const images = photos.map((p, i) => {
     const m = typeof p === 'string' && p.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
@@ -138,7 +146,7 @@ async function begin({ premise, players, photos = [] }) {
       role: 'user',
       content: [
         ...images.flatMap((img, i) => [{ type: 'text', text: `Photo ${i} (make it a place in the story):` }, img]),
-        { type: 'text', text: `PREMISE\n${premise.slice(0, 2000)}\n\nTHE PLAYERS\n${playersBlock(players)}\n\n${photos.length ? `There are ${photos.length} photos; each becomes exactly one place.` : 'There are no photos; invent the places.'}` },
+        { type: 'text', text: `PREMISE\n${premise.slice(0, 2000)}\n\n${invent ? 'THE PLAYER\nThe player has not described themselves: invent the protagonist they will play, someone who fits the premise and is interesting to be.' : `THE PLAYERS\n${playersBlock(players)}`}\n\n${photos.length ? `There are ${photos.length} photos; each becomes exactly one place.` : 'There are no photos; invent the places.'}` },
       ],
     }],
   });

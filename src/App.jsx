@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import WorldMap from './components/WorldMap';
 import PlantSeedModal from './components/PlantSeedModal';
 import CreateWorldModal from './components/CreateWorldModal';
-import CreateStoryModal from './components/CreateStoryModal';
 import WeavingOverlay from './components/WeavingOverlay';
 import { SEED_MEMORIES } from './data/seedMemories';
 import { loadMemories, saveMemories } from './services/storage';
@@ -14,6 +13,7 @@ import { loadWorlds, saveWorlds, newMemory, saveScene, deleteWorldAssets } from 
 import { dreamWorld, sleepingBible, NotConfiguredError } from './services/reveClient';
 import { loadStoryIndex, saveStory, deleteStory, savePlaceImage, storyFromBible } from './services/storyStore';
 import { beginStory } from './services/storyClient';
+import { STARTER_BIBLE, STARTER_PLAYERS, STARTER_PREMISE } from './data/starterStory';
 import { paintPanorama, startAIPanorama, waitForAIPanorama } from './services/panoramaService';
 import { putAsset, deleteAssets, emitAsset } from './services/assetStore';
 import { useHashRoute } from './hooks/useHashRoute';
@@ -61,7 +61,6 @@ export default function App() {
   const [imagining, setImagining] = useState(false);
   const [worlds, setWorlds] = useState(loadWorlds);
   const [stories, setStories] = useState(loadStoryIndex);
-  const [beginning, setBeginning] = useState(false);
   const [weaving, setWeaving] = useState(null); // { mood, preview, stage, progress }
   const [soundOn, setSoundOn] = useState(false);
   const [toast, setToast] = useState('');
@@ -96,6 +95,19 @@ export default function App() {
       return next;
     });
   }, []);
+
+  // first visit: no forms, no waiting — land straight inside a world
+  useEffect(() => {
+    let onboarded = false;
+    try { onboarded = localStorage.getItem('reve-ai:onboarded') === '1'; } catch { /* private mode */ }
+    if (onboarded || route.view !== 'map' || loadStoryIndex().length) return;
+    try { localStorage.setItem('reve-ai:onboarded', '1'); } catch { /* private mode */ }
+    const id = newId('story');
+    saveStory(storyFromBible(id, { premise: STARTER_PREMISE, players: STARTER_PLAYERS, bible: structuredClone(STARTER_BIBLE) })).then(() => {
+      setStories(loadStoryIndex());
+      go({ view: 'story', id }, { replace: true });
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateWorld = useCallback((id, fn) => {
     setWorlds((list) => {
@@ -213,11 +225,10 @@ export default function App() {
     }
   };
 
-  // a premise + who you are (+ a friend) + optional photos -> the narrator's bible -> painted places -> chapter one
-  const beginNewStory = async ({ premise, players, files }) => {
+  // one line: what you want to live -> the narrator builds the world and who you are in it -> chapter one
+  const beginNewStory = async ({ premise, players = [], files = [] }) => {
     const preview = files[0] ? URL.createObjectURL(files[0]) : null;
     const id = newId('story');
-    setBeginning(false);
     setWeaving({ mood: 'nostalgic', preview, stage: 'cast' });
     try {
       const photos = await Promise.all(files.map(photoForAI));
@@ -231,7 +242,8 @@ export default function App() {
         const pi = bible.places[i].photo_index;
         if (pi >= 0 && files[pi]) await savePlaceImage(id, i, await generateMemoryImage(files[pi], bible.mood));
       }
-      await saveStory(storyFromBible(id, { premise, players, bible }));
+      const cast = players.length ? players : [{ id: 'p1', ...bible.protagonist, joined: true, local: true }];
+      await saveStory(storyFromBible(id, { premise, players: cast, bible }));
       setStories(loadStoryIndex());
       mapScroll.current = 0;
       go({ view: 'story', id });
@@ -335,7 +347,7 @@ export default function App() {
               worlds={worlds}
               stories={stories}
               onEnterStory={(id) => { mapScroll.current = window.scrollY; go({ view: 'story', id }); }}
-              onBegin={() => setBeginning(true)}
+              onBegin={(premise) => beginNewStory({ premise })}
               onEnter={enterRoom}
               onEnterWorld={(id) => { mapScroll.current = window.scrollY; go({ view: 'world', id }); }}
               onPlant={() => setPlanting(true)}
@@ -348,7 +360,6 @@ export default function App() {
 
       <PlantSeedModal open={planting} onClose={() => setPlanting(false)} onSubmit={plant} />
       <CreateWorldModal open={imagining} onClose={() => setImagining(false)} onSubmit={imagine} />
-      <CreateStoryModal open={beginning} onClose={() => setBeginning(false)} onSubmit={beginNewStory} />
       <WeavingOverlay moodKey={weaving?.mood} preview={weaving?.preview} stage={weaving?.stage} progress={weaving?.progress} />
 
       <AnimatePresence>

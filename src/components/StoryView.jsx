@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, BookMarked, SendHorizontal, MapPin, Hourglass, Volume2, VolumeX, Headphones, Play, Square, Brush } from 'lucide-react';
+import { BookMarked, SendHorizontal, MapPin, Hourglass, Volume2, VolumeX, Headphones, Square, Brush, Compass, BookOpen, Users, Globe, Menu, X, AudioLines, MoreHorizontal, UserPlus, ChevronRight } from 'lucide-react';
 import ConsequenceChip from './ConsequenceChip';
 import ParticleCanvas from './ParticleCanvas';
 import StoryJournal from './StoryJournal';
@@ -9,7 +9,7 @@ import { loadStory, saveStory, loadPlaceImages, applyRecord } from '../services/
 import { playTurn, welcomeBack, summarizeTurns, NotConfiguredError } from '../services/storyClient';
 import { getAsset, onAsset } from '../services/assetStore';
 import { ensureStoryArt, illustrateMoment, ImagesNotConfigured } from '../services/storyArt';
-import { readAloud, voiceSupported } from '../services/voiceService';
+import { readAloud, voiceSupported, segmentNarration } from '../services/voiceService';
 import { ambient } from '../services/ambientAudio';
 
 const pref = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch { return d; } };
@@ -19,9 +19,9 @@ const AWAY_HOURS_FOR_RECAP = 8;
 const KEEP_VERBATIM = 6; // rounds sent in full; older ones get folded into the summary
 const SUMMARIZE_AFTER = 10;
 
-function Narration({ text }) {
+function Narration({ text, compact = false }) {
   return (
-    <div className="space-y-4 font-serif text-[1.22rem] leading-[1.75] text-parchment/90 sm:text-[1.3rem]">
+    <div className={`space-y-3 font-serif text-parchment/90 ${compact ? 'text-[1.12rem] leading-[1.6] sm:text-[1.22rem]' : 'space-y-4 text-[1.22rem] leading-[1.75] sm:text-[1.3rem]'}`}>
       {text.split(/\n{2,}/).filter(Boolean).map((p, i) => (
         <p key={i}>
           {p.split(/(\*[^*\n]+\*)/g).map((part, k) => (/^\*[^*]+\*$/.test(part) ? <em key={k}>{part.slice(1, -1)}</em> : <span key={k}>{part}</span>))}
@@ -47,6 +47,9 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
   const [portraits, setPortraits] = useState([]);
   const [drawing, setDrawing] = useState(null);
   const [artOff, setArtOff] = useState(false);
+  const [view, setView] = useState('explore'); // 'explore' (the scene) | 'story' (the whole story so far)
+  const [writing, setWriting] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const speechRef = useRef(null);
   const storyRef = useRef(null);
   const scrollRef = useRef(null);
@@ -208,126 +211,220 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
   if (!story) return <div className="fixed inset-0 bg-midnight" />;
 
   const mood = getMood(story.bible.mood);
-  const last = [...story.turns].reverse().find((t) => t.choices?.length);
-  const place = story.bible.places[story.scene];
-  const bg = places[story.scene];
   const me = story.players[0];
+  const place = story.bible.places[story.scene];
+  const lastNarrated = [...story.turns].reverse().find((t) => t.narration);
+  const lastIndex = story.turns.lastIndexOf(lastNarrated);
+  // an illustrated moment becomes the scene until the story moves on
+  const bg = (live === null && moments[lastIndex]) || places[story.scene];
+  const lastChoices = [...story.turns].reverse().find((t) => t.choices?.length)?.choices || [];
+  const passage = live !== null ? live : lastNarrated?.narration || '';
+  const segments = passage ? segmentNarration(passage, story.bible.cast, me.name) : [];
+  const speakerName = [...segments].reverse().find((s) => story.bible.cast.some((c) => c.name === s.speaker))?.speaker;
+  const speakerIndex = story.bible.cast.findIndex((c) => c.name === speakerName);
+  const activity = recentActivity(story);
+
+  const sideNav = (
+    <nav className="space-y-1">
+      {[
+        { key: 'explore', label: 'Explore', icon: Compass, onClick: () => { setView('explore'); setNavOpen(false); } },
+        { key: 'story', label: 'Your Story', icon: BookOpen, onClick: () => { setView('story'); setNavOpen(false); } },
+        { key: 'characters', label: 'Characters', icon: Users, onClick: () => { setJournal(true); setNavOpen(false); } },
+        { key: 'home', label: 'All worlds', icon: Globe, onClick: onExit },
+      ].map(({ key, label, icon: Icon, onClick }) => (
+        <button key={key} type="button" onClick={onClick} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] transition-colors ${view === key ? 'bg-white/10 text-parchment' : 'text-parchment/65 hover:bg-white/5 hover:text-parchment'}`}>
+          <Icon size={18} strokeWidth={1.6} /> {label}
+        </button>
+      ))}
+    </nav>
+  );
+
+  const sidebar = (
+    <div className="flex h-full flex-col gap-6 p-4">
+      <div className="overflow-hidden rounded-2xl border border-white/10">
+        {places[0] ? <img src={places[0]} alt="" className="aspect-[16/10] w-full object-cover" /> : <div className="aspect-[16/10] w-full" style={{ background: `linear-gradient(160deg, ${mood.secondary}, ${mood.bg[1]})` }} />}
+        <div className="p-3">
+          <p className="font-serif text-xl leading-tight text-parchment">{story.bible.title}</p>
+          <p className="mt-0.5 text-xs text-parchment/55">{story.time}</p>
+        </div>
+      </div>
+      {sideNav}
+      <div className="mt-auto space-y-4">
+        <div className="border-t border-white/10 pt-4">
+          <p className="mb-2 text-[10px] uppercase tracking-[0.25em] text-parchment/45">Your character</p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full font-serif text-lg text-midnight" style={{ background: `radial-gradient(circle at 40% 30%, ${mood.primary}, ${mood.secondary})` }}>{me.name[0]}</div>
+            <div className="min-w-0">
+              <p className="truncate text-[15px] text-parchment">{me.name}</p>
+              {me.tag && <p className="truncate text-xs text-parchment/50">{me.tag}</p>}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <ToggleButton on={soundOn} onClick={() => { const v = !soundOn; setSoundOn(v); setPref('reve-ai:story-sound', v); }} label="Ambient sound" mood={mood}>{soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}</ToggleButton>
+          {voiceSupported && <ToggleButton on={autoRead} onClick={() => { const v = !autoRead; setAutoRead(v); setPref('reve-ai:story-read', v); if (!v) stopListening(); }} label="Read new passages aloud" mood={mood}><Headphones size={16} /></ToggleButton>}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="fixed inset-0 overflow-clip" style={{ background: mood.bg[0] }}>
-      <AnimatePresence mode="sync">
-        {bg ? (
-          <motion.img key={bg} src={bg} alt="" className="absolute inset-0 h-full w-full object-cover" initial={{ opacity: 0, scale: 1.1 }} animate={{ opacity: 0.55, scale: 1.02 }} exit={{ opacity: 0 }} transition={{ opacity: { duration: 1.8 }, scale: { duration: 30, ease: 'linear' } }} />
-        ) : (
-          <motion.div key={`g${story.scene}`} className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ background: `radial-gradient(80% 60% at 50% 20%, ${mood.secondary}55, transparent), linear-gradient(180deg, ${mood.bg[1]}, ${mood.bg[0]})` }} />
-        )}
-      </AnimatePresence>
-      <div className="pointer-events-none absolute inset-0 opacity-70"><ParticleCanvas modes={mood.particles} density={0.5} /></div>
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/70 via-black/55 to-black/80" />
+    <div className="fixed inset-0 flex overflow-clip" style={{ background: mood.bg[0] }}>
+      {/* left: world, navigation, you */}
+      <aside className="hidden w-64 shrink-0 border-r border-white/5 bg-black/40 lg:block">{sidebar}</aside>
 
-      {/* top bar */}
-      <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 bg-gradient-to-b from-black/90 via-black/70 to-transparent px-4 pb-8 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6 sm:pt-5">
-        <button type="button" onClick={onExit} className="glass-btn inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-parchment/85"><ArrowLeft size={16} /> <span className="hidden sm:inline">World Map</span></button>
-        <div className="min-w-0 text-center">
-          <p className="truncate font-serif text-lg italic text-parchment sm:text-2xl">{story.bible.title}</p>
-          <p className="truncate text-[10px] uppercase tracking-[0.22em]" style={{ color: mood.primary }}>Chapter {story.chapter.n} · {story.time}</p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button type="button" onClick={() => { const v = !soundOn; setSoundOn(v); setPref('reve-ai:story-sound', v); }} aria-pressed={soundOn} aria-label={soundOn ? 'Turn ambience off' : 'Turn ambience on'} title="Ambient sound" className="glass-btn rounded-full p-2.5 text-parchment/80" style={soundOn ? { color: mood.primary, borderColor: `${mood.primary}88` } : undefined}>
-            {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
-          </button>
-          {voiceSupported && (
-            <button type="button" onClick={() => { const v = !autoRead; setAutoRead(v); setPref('reve-ai:story-read', v); if (!v) stopListening(); }} aria-pressed={autoRead} aria-label={autoRead ? 'Stop reading new passages aloud' : 'Read new passages aloud'} title="Read aloud" className="glass-btn rounded-full p-2.5 text-parchment/80" style={autoRead ? { color: mood.primary, borderColor: `${mood.primary}88` } : undefined}>
-              <Headphones size={16} />
-            </button>
+      {/* centre: the scene */}
+      <main className="relative min-w-0 flex-1 overflow-clip">
+        <AnimatePresence mode="sync">
+          {bg ? (
+            <motion.img key={bg} src={bg} alt={place?.name || ''} className="absolute inset-0 h-full w-full object-cover" initial={{ opacity: 0, scale: 1.08 }} animate={{ opacity: 1, scale: 1.02 }} exit={{ opacity: 0 }} transition={{ opacity: { duration: 1.6 }, scale: { duration: 30, ease: 'linear' } }} />
+          ) : (
+            <motion.div key={`g${story.scene}`} className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ background: `radial-gradient(70% 55% at 50% 30%, ${mood.secondary}66, transparent), linear-gradient(180deg, ${mood.bg[1]}, ${mood.bg[0]})` }} />
           )}
-          <button type="button" onClick={() => setJournal(true)} className="glass-btn inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-parchment/85"><BookMarked size={16} /> <span className="hidden sm:inline">Journal</span></button>
-        </div>
-      </header>
+        </AnimatePresence>
+        <div className="pointer-events-none absolute inset-0 opacity-70"><ParticleCanvas modes={mood.particles} density={0.5} /></div>
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/70" />
 
-      {/* the story so far */}
-      <div ref={scrollRef} className="absolute inset-0 overflow-y-auto pb-56 pt-24">
-        <div className="mx-auto max-w-2xl px-5 sm:px-8">
-          {place && <p className="mb-6 text-center text-[11px] uppercase tracking-[0.3em] text-parchment/45"><MapPin size={11} className="mr-1 inline" />{place.name}</p>}
-          {story.turns.map((t, i) => (
-            <section key={i} className="mb-10">
-              {t.kind === 'opening' && <ChapterMark n={1} title={story.bible.opening.chapter_title} mood={mood} />}
-              {t.kind === 'chapter' && <ChapterMark n={t.chapter} title={t.title} mood={mood} />}
-              {t.kind === 'turn' && (
-                <p className="mb-4 border-l-2 pl-3 text-[15px] italic text-parchment/70" style={{ borderColor: mood.primary }}>
-                  {t.actions.map((a) => <span key={a.player} className="block"><span className="not-italic text-parchment/45">{a.player === me.name ? 'You' : a.player}:</span> {a.text}</span>)}
-                </p>
-              )}
-              {moments[i] && (
-                <motion.img src={moments[i]} alt="An illustration of this moment" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1 }} className="mb-5 w-full rounded-2xl border border-white/10 object-cover" style={{ boxShadow: `0 20px 60px -20px ${mood.glow}` }} />
-              )}
-              {t.narration && <Narration text={t.narration} />}
-              {t.narration && (
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-parchment/45">
-                  {voiceSupported && (speaking?.turn === i ? (
-                    <button type="button" onClick={stopListening} className="inline-flex items-center gap-1.5 hover:text-parchment" style={{ color: mood.primary }}>
-                      <Square size={11} fill="currentColor" /> {speaking.speaker && speaking.speaker !== 'narrator' ? `${speaking.speaker.split(' ')[0]} is speaking…` : 'Reading…'}
-                    </button>
+        {/* top: mobile menu, place */}
+        <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-4">
+          <button type="button" onClick={() => setNavOpen(true)} className="glass-btn rounded-full p-2.5 text-parchment/85 lg:hidden" aria-label="Open menu"><Menu size={18} /></button>
+          <p className="hidden font-serif text-lg italic text-parchment/80 lg:block">Chapter {story.chapter.n} · {story.chapter.title}</p>
+          <div className="glass-btn flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-parchment/90">
+            <MapPin size={14} style={{ color: mood.primary }} /> {place?.name}
+          </div>
+        </div>
+
+        {view === 'story' ? (
+          /* the whole story so far, like a book */
+          <div ref={scrollRef} className="absolute inset-0 z-10 overflow-y-auto bg-black/75 pb-24 pt-20 backdrop-blur-sm">
+            <div className="mx-auto max-w-2xl px-5 sm:px-8">
+              {story.turns.map((t, i) => (
+                <section key={i} className="mb-10">
+                  {t.kind === 'opening' && <ChapterMark n={1} title={story.bible.opening.chapter_title} mood={mood} />}
+                  {t.kind === 'chapter' && <ChapterMark n={t.chapter} title={t.title} mood={mood} />}
+                  {t.kind === 'turn' && <p className="mb-4 border-l-2 pl-3 text-[15px] italic text-parchment/70" style={{ borderColor: mood.primary }}>You: {t.actions.map((a) => a.text).join(' / ')}</p>}
+                  {moments[i] && <img src={moments[i]} alt="" className="mb-5 w-full rounded-2xl border border-white/10" />}
+                  {t.narration && <Narration text={t.narration} />}
+                  {t.kind === 'interlude' && t.events?.length > 0 && (
+                    <ul className="mt-4 space-y-1.5 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                      {t.events.map((e, k) => <li key={k} className="font-serif text-lg text-parchment/80"><Hourglass size={12} className="mr-2 inline" style={{ color: mood.primary }} />{e}</li>)}
+                    </ul>
+                  )}
+                  {t.consequences?.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{t.consequences.map((c, k) => <ConsequenceChip key={k} c={c} mood={mood} />)}</div>}
+                </section>
+              ))}
+              <button type="button" onClick={() => setView('explore')} className="btn-lantern mx-auto block rounded-full px-6 py-2.5 text-sm font-medium">Back to the scene</button>
+            </div>
+          </div>
+        ) : (
+          /* the moment you're in: who's speaking, what they said, what you do */
+          <div className="absolute inset-x-0 bottom-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8 sm:pb-6">
+            <div className="glass mx-auto max-w-3xl rounded-3xl p-4 sm:p-5">
+              <div className="flex gap-3 sm:gap-4">
+                <div className="shrink-0">
+                  {speakerIndex >= 0 && portraits[speakerIndex] ? (
+                    <img src={portraits[speakerIndex]} alt={speakerName} className="h-12 w-12 rounded-full border object-cover sm:h-16 sm:w-16" style={{ borderColor: `${mood.primary}88` }} />
                   ) : (
-                    <button type="button" onClick={() => listen(i)} className="inline-flex items-center gap-1.5 hover:text-parchment"><Play size={11} fill="currentColor" /> Listen</button>
-                  ))}
-                  {!moments[i] && !artOff && (
-                    <button type="button" onClick={() => illustrate(i)} disabled={drawing !== null} className="inline-flex items-center gap-1.5 hover:text-parchment disabled:opacity-50">
-                      <Brush size={12} /> {drawing === i ? 'Painting this moment…' : 'Illustrate this moment'}
-                    </button>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full font-serif text-xl text-midnight sm:h-16 sm:w-16" style={{ background: `radial-gradient(circle at 40% 30%, ${mood.primary}, ${mood.secondary})` }}>{(speakerName || '✦')[0]}</div>
                   )}
                 </div>
-              )}
-              {t.kind === 'interlude' && (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                  <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.25em]" style={{ color: mood.primary }}><Hourglass size={12} /> while you were away</p>
-                  <ul className="mt-2 space-y-1.5">{(t.events || []).map((e, k) => <li key={k} className="font-serif text-lg leading-snug text-parchment/80">{e}</li>)}</ul>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <span className="rounded-full px-2.5 py-0.5 font-serif text-[15px] text-parchment" style={{ background: `${mood.secondary}66` }}>{speakerName || place?.name || story.bible.title}</span>
+                    {voiceSupported && passage && live === null && (
+                      speaking ? (
+                        <button type="button" onClick={stopListening} className="rounded-full p-1.5" style={{ color: mood.primary }} aria-label="Stop reading"><Square size={14} fill="currentColor" /></button>
+                      ) : (
+                        <button type="button" onClick={() => listen(lastIndex)} className="rounded-full p-1.5 text-parchment/55 hover:text-parchment" aria-label="Listen"><AudioLines size={18} /></button>
+                      )
+                    )}
+                  </div>
+                  <div key={lastIndex} className="max-h-[34vh] overflow-y-auto pr-1">
+                    {passage ? <Narration text={passage} compact /> : (
+                      <p className="flex items-center gap-2 font-serif text-lg italic text-parchment/55">
+                        the story turns {[0, 1, 2].map((d) => <motion.span key={d} className="h-1.5 w-1.5 rounded-full" style={{ background: mood.primary }} animate={{ opacity: [0.2, 1, 0.2] }} transition={{ duration: 1.2, repeat: Infinity, delay: d * 0.2 }} />)}
+                      </p>
+                    )}
+                    {live === null && lastNarrated?.consequences?.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">{lastNarrated.consequences.map((c, k) => <ConsequenceChip key={k} c={c} mood={mood} small />)}</div>
+                    )}
+                  </div>
                 </div>
-              )}
-              {t.consequences?.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">{t.consequences.map((c, k) => <ConsequenceChip key={k} c={c} mood={mood} />)}</div>
-              )}
-            </section>
-          ))}
-          {live !== null && (
-            <section className="mb-10">
-              {live ? <Narration text={live} /> : (
-                <p className="flex items-center gap-2 font-serif text-lg italic text-parchment/50">
-                  the story turns
-                  {[0, 1, 2].map((d) => <motion.span key={d} className="h-1.5 w-1.5 rounded-full" style={{ background: mood.primary }} animate={{ opacity: [0.2, 1, 0.2] }} transition={{ duration: 1.2, repeat: Infinity, delay: d * 0.2 }} />)}
-                </p>
-              )}
-            </section>
-          )}
-        </div>
-      </div>
+              </div>
 
-      {/* what do you do? */}
-      <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/70 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-10">
-        <div className="mx-auto max-w-2xl">
-          {!busy && last?.choices?.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {last.choices.slice(0, 3).map((c) => (
-                <button key={c} type="button" onClick={() => act(c)} className="rounded-full border px-3.5 py-1.5 text-left text-sm text-parchment/85 transition-colors hover:text-parchment" style={{ borderColor: `${mood.primary}55`, background: `${mood.primary}10` }}>{c}</button>
+              {error && <p className="mt-3 text-sm text-rose-300/90">{error}</p>}
+
+              {!busy && (writing ? (
+                <form onSubmit={(e) => { e.preventDefault(); act(); setWriting(false); }} className="mt-4 flex items-end gap-2">
+                  <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); act(); setWriting(false); } if (e.key === 'Escape') setWriting(false); }} rows={1} maxLength={1500} placeholder={`What does ${me.name.split(' ')[0]} do or say?`} className="max-h-28 min-h-[46px] flex-1 resize-none rounded-2xl border border-white/15 bg-midnight/60 px-4 py-3 text-[15px] text-parchment placeholder:text-parchment/35 focus:border-gold/50 focus:outline-none" />
+                  <button type="submit" disabled={!draft.trim()} className="rounded-full p-3.5 text-midnight disabled:opacity-30" style={{ background: mood.primary }} aria-label="Act"><SendHorizontal size={18} /></button>
+                </form>
+              ) : (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {lastChoices.slice(0, 3).map((c) => (
+                    <button key={c} type="button" onClick={() => act(c)} className="flex-1 basis-[30%] rounded-xl border border-white/20 bg-black/20 px-4 py-2.5 text-left text-[15px] text-parchment/90 transition-colors hover:border-gold/60 hover:bg-white/5">{c}</button>
+                  ))}
+                  <button type="button" onClick={() => setWriting(true)} className="rounded-xl border border-white/20 bg-black/20 px-4 py-2.5 text-parchment/70 hover:border-gold/60 hover:text-parchment" aria-label="Write your own"><MoreHorizontal size={18} /></button>
+                </div>
               ))}
+
+              {!drawing && !moments[lastIndex] && !artOff && live === null && lastNarrated && (
+                <button type="button" onClick={() => illustrate(lastIndex)} className="mt-3 inline-flex items-center gap-1.5 text-xs text-parchment/40 hover:text-parchment"><Brush size={12} /> Illustrate this moment</button>
+              )}
+              {drawing !== null && <p className="mt-3 text-xs text-parchment/50">Painting this moment…</p>}
             </div>
-          )}
-          {error && <p className="mb-2 text-sm text-rose-300/90">{error}</p>}
-          <form onSubmit={(e) => { e.preventDefault(); act(); }} className="flex items-end gap-2">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); act(); } }}
-              rows={1}
-              maxLength={1500}
-              disabled={busy}
-              placeholder={`What does ${me.name} do or say?`}
-              className="max-h-32 min-h-[48px] flex-1 resize-none rounded-2xl border border-white/15 bg-midnight/70 px-4 py-3 text-[15px] text-parchment placeholder:text-parchment/35 focus:border-gold/50 focus:outline-none disabled:opacity-50"
-            />
-            <button type="submit" disabled={!draft.trim() || busy} className="rounded-full p-3.5 text-midnight disabled:opacity-30" style={{ background: mood.primary }} aria-label="Act"><SendHorizontal size={18} /></button>
-          </form>
-        </div>
-      </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* right: who's with you, what happened */}
+      <aside className="hidden w-72 shrink-0 flex-col gap-6 overflow-y-auto border-l border-white/5 bg-black/40 p-5 xl:flex">
+        <section>
+          <h3 className="mb-3 font-serif text-xl text-parchment">With you in this world</h3>
+          {story.players.slice(1).map((p) => (
+            <div key={p.id} className="flex items-center gap-3 py-1.5">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 font-serif text-parchment">{p.name[0]}</div>
+              <div className="min-w-0 flex-1"><p className="text-sm text-parchment">{p.name}</p><p className="text-xs text-parchment/45">played by the story for now</p></div>
+            </div>
+          ))}
+          <button type="button" disabled className="mt-2 inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 px-3 py-2.5 text-sm text-parchment/45" title="Inviting friends arrives with the shared world (next step)">
+            <UserPlus size={15} /> Invite a friend · soon
+          </button>
+        </section>
+        <section>
+          <h3 className="mb-3 font-serif text-xl text-parchment">Recent activity</h3>
+          {activity.length === 0 && <p className="text-sm text-parchment/45">Your choices will leave traces here.</p>}
+          <ul className="space-y-3">
+            {activity.map((a, i) => (
+              <li key={i} className="flex gap-3">
+                <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: mood.primary }} />
+                <div className="min-w-0 flex-1"><p className="text-sm leading-snug text-parchment/80">{a.text}</p><p className="text-[11px] text-parchment/40">{ago(a.at)}</p></div>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="mt-auto">
+          <button type="button" onClick={() => setJournal(true)} className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3.5 text-left hover:border-gold/40">
+            <BookMarked size={22} style={{ color: mood.primary }} />
+            <span className="min-w-0 flex-1"><span className="block truncate text-[15px] text-parchment">{story.chapter.title}</span><span className="text-xs text-parchment/50">Chapter {story.chapter.n} · journal</span></span>
+            <ChevronRight size={16} className="text-parchment/40" />
+          </button>
+        </section>
+      </aside>
+
+      {/* mobile menu */}
+      <AnimatePresence>
+        {navOpen && (
+          <motion.div className="fixed inset-0 z-40 lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="absolute inset-0 bg-black/60" onClick={() => setNavOpen(false)} />
+            <motion.div initial={{ x: -30 }} animate={{ x: 0 }} exit={{ x: -30 }} className="glass absolute inset-y-0 left-0 w-72">
+              <button type="button" onClick={() => setNavOpen(false)} className="absolute right-3 top-3 rounded-full p-2 text-parchment/60" aria-label="Close menu"><X size={16} /></button>
+              {sidebar}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {recap && (
@@ -350,6 +447,33 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
       </AnimatePresence>
     </div>
   );
+}
+
+function ToggleButton({ on, onClick, label, mood, children }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={on} aria-label={label} title={label} className="glass-btn rounded-full p-3 text-parchment/70" style={on ? { color: mood.primary, borderColor: `${mood.primary}88` } : undefined}>
+      {children}
+    </button>
+  );
+}
+
+/** The last few things that changed: consequences of your choices, and events while you were away. */
+function recentActivity(story) {
+  const items = [];
+  for (const t of story.turns) {
+    (t.consequences || []).forEach((c) => items.push({ text: c.text, at: t.at }));
+    (t.events || []).forEach((e) => items.push({ text: e, at: t.at }));
+  }
+  return items.slice(-5).reverse();
+}
+
+function ago(iso) {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  if (m < 60 * 24) return `${Math.round(m / 60)}h ago`;
+  const d = Math.round(m / 1440);
+  return d === 1 ? 'yesterday' : `${d} days ago`;
 }
 
 function ChapterMark({ n, title, mood }) {
