@@ -58,6 +58,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
   const [recap, setRecap] = useState(null);
   const [menu, setMenu] = useState(false);
   const [panel, setPanel] = useState(null); // 'journal' | 'book'
+  const [credit, setCredit] = useState(null); // who took the photo of this place
   const [soundOn, setSoundOn] = useState(() => pref('reve-ai:story-sound', true));
   const storyRef = useRef(null);
   const abortRef = useRef(null);
@@ -124,6 +125,13 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
 
   // the room's sounds: the story's feeling, plus whatever this place sounds like
   const place = story?.bible.places[story.scene];
+  const placeLoaded = !!places[story?.scene];
+  useEffect(() => {
+    if (story?.scene == null) return;
+    let alive = true;
+    getAsset(storyId, `credit${story.scene}`).then((c) => alive && setCredit(c || null));
+    return () => { alive = false; };
+  }, [storyId, story?.scene, placeLoaded]);
   const sounds = useMemo(() => (place ? placeSounds(place) : []), [place]);
   useEffect(() => {
     if (soundOn && story) ambient.play(story.bible.mood, sounds);
@@ -296,6 +304,11 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
             <div className="glass absolute right-0 top-12 w-52 overflow-hidden rounded-2xl py-1.5 text-sm">
               <button type="button" onClick={() => { setPanel('book'); setMenu(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-parchment/85 hover:bg-white/5"><BookOpen size={15} /> The story so far</button>
               <button type="button" onClick={() => { setPanel('journal'); setMenu(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-parchment/85 hover:bg-white/5"><Users size={15} /> Characters</button>
+              {credit && (
+                <a href={credit.link} target="_blank" rel="noreferrer noopener" className="block border-t border-white/10 px-4 py-2.5 text-xs leading-snug text-parchment/55 hover:text-parchment">
+                  Photo: {credit.author} · {credit.source}{credit.license ? ` · ${credit.license}` : ''}
+                </a>
+              )}
             </div>
           )}
         </div>

@@ -63,47 +63,83 @@ export async function generateImage(prompt, shape = 'landscape') {
   return (await fetch(json.image)).blob();
 }
 
+/* ------------------------------ photos of places ------------------------------ */
+
+/** What to search a photo library for: the narrator's searches, or (older stories) the place's name. */
+export function photoSearches(place) {
+  if (Array.isArray(place?.photo_search) && place.photo_search.length) return place.photo_search.slice(0, 3);
+  const name = (place?.name || '').replace(/^the\s+/i, '').trim();
+  return name ? [name] : [];
+}
+
+/**
+ * A real photo of a place from a free photo library (see api/media.js → photo).
+ * Saves it as place<i> with its credit as credit<i>. Returns true if one was found.
+ */
+export async function findPlacePhoto(story, i) {
+  const queries = photoSearches(story.bible.places[i]);
+  if (!queries.length) return false;
+  try {
+    const res = await fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'photo', queries }) });
+    if (!res.ok) return false;
+    const json = await res.json();
+    if (!json.image) return false;
+    await putAsset(story.id, `place${i}`, await (await fetch(json.image)).blob());
+    if (json.credit) await putAsset(story.id, `credit${i}`, json.credit);
+    return true;
+  } catch (err) {
+    console.warn('[photo]', err.message);
+    return false;
+  }
+}
+
+/** A place's picture: a real photo first, an AI painting if none is found (and images are set up). */
+async function drawPlace(story, i) {
+  if (await findPlacePhoto(story, i)) return true;
+  if (imagesOff) return false;
+  await putAsset(story.id, `place${i}`, await generateImage(placePrompt(story, i), 'landscape'));
+  return true;
+}
+
 /* ------------------------------ background art queue ------------------------------ */
 
 const running = new Set();
 
-/**
- * Draw anything a story is still missing: places without a photo, and cast portraits.
- * Runs once per story at a time, one image after another, and announces each as it lands.
- */
 /** Paint one place or portrait now (used to have the opening room ready before you step in). */
 export async function paintNow(story, kind) {
   const m = kind.match(/^(place|portrait)(\d+)$/);
   if (!m || (await getAsset(story.id, kind))) return;
   const i = Number(m[2]);
-  const blob = m[1] === 'place' ? await generateImage(placePrompt(story, i), 'landscape') : await generateImage(portraitPrompt(story, story.bible.cast[i]), 'portrait');
-  await putAsset(story.id, kind, blob);
+  if (m[1] === 'place') return drawPlace(story, i);
+  await putAsset(story.id, kind, await generateImage(portraitPrompt(story, story.bible.cast[i]), 'portrait'));
 }
 
+/**
+ * Fill in anything a story is still missing: places (photo, else painting) and cast portraits.
+ * Runs once per story at a time, one image after another, and announces each as it lands.
+ */
 export async function ensureStoryArt(story) {
-  if (imagesOff || running.has(story.id)) return;
+  if (running.has(story.id)) return;
   running.add(story.id);
   try {
     // the room you're standing in and the people in it come first; the rest of the world after
     const here = story.scene || 0;
     const placeOrder = [here, ...story.bible.places.map((_, i) => i).filter((i) => i !== here)];
-    const placeJobs = [];
-    for (const i of placeOrder) {
-      if (!(await getAsset(story.id, `place${i}`))) placeJobs.push({ kind: `place${i}`, prompt: placePrompt(story, i), shape: 'landscape' });
-    }
-    const castJobs = [];
-    for (let k = 0; k < story.bible.cast.length; k++) {
-      if (!(await getAsset(story.id, `portrait${k}`))) castJobs.push({ kind: `portrait${k}`, prompt: portraitPrompt(story, story.bible.cast[k]), shape: 'portrait' });
-    }
-    const jobs = [...placeJobs.slice(0, 1), ...castJobs, ...placeJobs.slice(1)];
+    const missingPlaces = [];
+    for (const i of placeOrder) if (!(await getAsset(story.id, `place${i}`))) missingPlaces.push(i);
+    const missingCast = [];
+    for (let k = 0; k < story.bible.cast.length; k++) if (!(await getAsset(story.id, `portrait${k}`))) missingCast.push(k);
+
+    const jobs = [
+      ...missingPlaces.slice(0, 1).map((i) => ({ kind: `place${i}`, run: () => drawPlace(story, i) })),
+      ...missingCast.map((k) => ({ kind: `portrait${k}`, run: async () => { if (imagesOff) return false; await putAsset(story.id, `portrait${k}`, await generateImage(portraitPrompt(story, story.bible.cast[k]), 'portrait')); return true; } })),
+      ...missingPlaces.slice(1).map((i) => ({ kind: `place${i}`, run: () => drawPlace(story, i) })),
+    ];
     for (const job of jobs) {
       try {
-        const blob = await generateImage(job.prompt, job.shape);
-        await putAsset(story.id, job.kind, blob);
-        emitAsset(story.id, job.kind);
+        if (await job.run()) emitAsset(story.id, job.kind);
       } catch (err) {
-        if (err instanceof ImagesNotConfigured) return;
-        console.warn('[art] could not draw', job.kind, err.message);
+        if (!(err instanceof ImagesNotConfigured)) console.warn('[art] could not draw', job.kind, err.message);
       }
     }
   } finally {

@@ -36,7 +36,7 @@ export async function saveStory(story) {
 export async function deleteStory(id) {
   const story = await loadStory(id);
   saveIndex(loadStoryIndex().filter((x) => x.id !== id));
-  const kinds = ['story', ...Array.from({ length: 8 }, (_, i) => `place${i}`), ...Array.from({ length: 8 }, (_, i) => `portrait${i}`)];
+  const kinds = ['story', ...Array.from({ length: 8 }, (_, i) => `place${i}`), ...Array.from({ length: 8 }, (_, i) => `portrait${i}`), ...Array.from({ length: 8 }, (_, i) => `credit${i}`)];
   (story?.turns || []).forEach((t, i) => t.art && kinds.push(`moment${i}`));
   await deleteAssetKinds(id, kinds);
 }

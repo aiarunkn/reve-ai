@@ -97,6 +97,7 @@ const Bible = z.object({
     description: z.string().describe('2 sensory sentences'),
     photo_index: z.number().int().describe('Index of the photo this place is painted from, or -1'),
     sounds: z.array(z.enum(SOUNDS)).describe('1-2 ambient sounds you hear in this place'),
+    photo_search: z.array(z.string()).describe('2 searches for a real stock photo that looks like this place, most specific first, 2-3 plain words each, say "interior" for indoor places, e.g. ["gothic library interior", "old library"]. Describe what it looks like; never franchise or character names'),
   })).describe('3-5 places; the first one is where the story opens. Every provided photo becomes exactly one place'),
   cast: z.array(z.object({
     name: z.string(),

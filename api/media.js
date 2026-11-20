@@ -3,6 +3,11 @@
  *
  * POST { action: 'image', prompt, shape: 'landscape' | 'portrait' | 'square' } -> { image: <data URL> }
  * POST { action: 'voice', text, voice }                                       -> 501 until a provider is added
+ * POST { action: 'photo', queries: ['gothic library', ...] }                    -> { image: <data URL>, credit } | 404
+ *
+ * Photos of a place come from free photo libraries, never from scraped sites:
+ *   PEXELS_API_KEY  optional, free at pexels.com/api — much better photos. Without it, Openverse
+ *                   (openly licensed images, no key) is used, which has fewer good matches.
  *
  * Env (server-side only, no VITE_ prefix):
  *   OPENAI_API_KEY       required for images; without it, image calls answer 501 and the app
@@ -31,6 +36,10 @@ export default async function handler(req, res) {
   try {
     if (body.action === 'image') return send(res, 200, await image(body));
     if (body.action === 'voice') return voice(res, body);
+    if (body.action === 'photo') {
+      const found = await photo(body);
+      return found ? send(res, 200, found) : send(res, 404, { error: 'No photo found.' });
+    }
     return send(res, 400, { error: 'Unknown action' });
   } catch (err) {
     console.error('[media]', err);
@@ -61,6 +70,65 @@ async function image({ prompt, shape = 'landscape' }) {
   const b64 = json.data?.[0]?.b64_json;
   if (!b64) throw httpError(502, 'The image service returned no image.');
   return { image: `data:image/jpeg;base64,${b64}` };
+}
+
+/* ------------------------------ photos of places ------------------------------ */
+
+const PHOTO_TIMEOUT = 12000;
+
+async function getJson(url, headers = {}) {
+  const r = await fetch(url, { headers: { 'User-Agent': 'reve-ai/0.1 (story app)', ...headers }, signal: AbortSignal.timeout(PHOTO_TIMEOUT) });
+  if (!r.ok) throw httpError(r.status, `Photo search responded ${r.status}`);
+  return r.json();
+}
+
+async function pexels(query) {
+  const key = process.env.PEXELS_API_KEY;
+  if (!key) return null;
+  const json = await getJson(`https://api.pexels.com/v1/search?${new URLSearchParams({ query, orientation: 'landscape', per_page: '8', size: 'large' })}`, { Authorization: key });
+  const p = json.photos?.[0];
+  return p && { url: p.src.large2x || p.src.large, credit: { author: p.photographer, link: p.url, source: 'Pexels' } };
+}
+
+async function openverse(query) {
+  const json = await getJson(`https://api.openverse.org/v1/images/?${new URLSearchParams({ q: query, page_size: '20', aspect_ratio: 'wide', license_type: 'commercial', mature: 'false' })}`);
+  // Openverse ranks loosely: keep the photo whose title and tags share the most words with the search
+  const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  const score = (x) => {
+    const text = `${x.title || ''} ${(x.tags || []).map((t) => t.name).join(' ')}`.toLowerCase();
+    return words.filter((w) => text.includes(w.replace(/s$/, ''))).length;
+  };
+  const usable = (json.results || []).filter((x) => x.width >= 1000 && x.width > x.height && (!x.filetype || ['jpg', 'jpeg', 'png', 'webp'].includes(x.filetype)));
+  const best = usable.map((x) => [score(x), x]).sort((p, q) => q[0] - p[0])[0];
+  // need most of the words to match, or this search gives up and the next one is tried
+  if (!best || best[0] < Math.max(1, Math.ceil(words.length * 0.6))) return null;
+  const r = best[1];
+  const license = `${(r.license || '').toUpperCase()}${r.license_version ? ` ${r.license_version}` : ''}`;
+  return { url: r.url, credit: { author: r.creator || 'Unknown', link: r.foreign_landing_url || r.url, source: 'Openverse', license } };
+}
+
+/** First good landscape photo for any of the queries (most specific first). */
+async function photo({ queries }) {
+  const list = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q || '').trim().slice(0, 80)).filter(Boolean).slice(0, 3);
+  if (!list.length) throw httpError(400, 'Missing photo search.');
+  for (const q of list) {
+    for (const search of [pexels, openverse]) {
+      let hit;
+      try { hit = await search(q); } catch (err) { console.warn('[photo]', search.name, err.message); continue; }
+      if (!hit) continue;
+      try {
+        const r = await fetch(hit.url, { headers: { 'User-Agent': 'reve-ai/0.1 (story app)' }, signal: AbortSignal.timeout(PHOTO_TIMEOUT) });
+        const type = r.headers.get('content-type') || '';
+        if (!r.ok || !type.startsWith('image/')) continue;
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (buf.length > 3.5 * 1024 * 1024) continue; // keep the response under the hosting limit
+        return { image: `data:${type.split(';')[0]};base64,${buf.toString('base64')}`, credit: hit.credit, query: q };
+      } catch (err) {
+        console.warn('[photo] download failed', err.message);
+      }
+    }
+  }
+  return null;
 }
 
 /** Placeholder for a paid voice provider: return audio bytes (e.g. audio/mpeg) for `text` in `voice`. */
