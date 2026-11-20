@@ -111,7 +111,7 @@ export default function StoryJournal({ story, mood, places, portraits = [], onCl
             <div className="space-y-3">
               {story.players.map((p, i) => (
                 <div key={p.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="font-serif text-xl text-parchment">{p.name} {i === 0 && <span className="text-xs text-parchment/45">(you)</span>}</p>
+                  <p className="flex items-center gap-2 font-serif text-xl text-parchment">{p.color && <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />}{p.name} {i === 0 && <span className="text-xs text-parchment/45">(you)</span>}</p>
                   {p.look && <p className="mt-1 text-sm text-parchment/65">{p.look}</p>}
                   {p.want && <p className="mt-1 text-sm text-parchment/65">Wants: {p.want}</p>}
                   {p.description && <p className="mt-1 text-sm text-parchment/65">{p.description}</p>}
@@ -119,14 +119,12 @@ export default function StoryJournal({ story, mood, places, portraits = [], onCl
                   {!p.joined && (
                     <>
                       <p className="mt-3 text-xs text-parchment/50">Played by the story until they join.</p>
-                      <button type="button" disabled className="mt-2 inline-flex cursor-not-allowed items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs text-parchment/50" title="Invites arrive with the shared database (next step)">
-                        <UserPlus size={13} /> Invite {p.name.split(' ')[0]} — coming soon
-                      </button>
+                      <p className="mt-1 text-xs text-parchment/50">Send them a code with the invite button at the top of the scene.</p>
                     </>
                   )}
                 </div>
               ))}
-              <button type="button" onClick={onDelete} className="mt-6 inline-flex items-center gap-1.5 text-xs text-parchment/40 hover:text-rose-200"><Trash2 size={13} /> Delete this story</button>
+              <button type="button" onClick={onDelete} className="mt-6 inline-flex items-center gap-1.5 text-xs text-parchment/40 hover:text-rose-200"><Trash2 size={13} /> {story.shared ? 'Leave this world' : 'Delete this story'}</button>
             </div>
           )}
         </div>

@@ -7,6 +7,10 @@
  *   return     { story, awayHours }                 -> JSON: "previously…" recap + what happened while you were away
  *   summarize  { story, turns }                     -> JSON: folded story-so-far summary
  *
+ * Shared worlds: a turn may carry { shared: { code, playerId, token } } instead of a story.
+ * The server then loads that player's view of the world from the database (it never trusts
+ * a story sent by the browser), narrates, and saves the turn for everyone.
+ *
  * Built for several players from the start: a round carries one action per player.
  * Players who haven't joined yet are played by the narrator, true to their description.
  * Needs ANTHROPIC_API_KEY on the server; without it every call answers 501.
@@ -14,6 +18,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+import { sharedConfigured, loadAs, narratorView, insertTurn } from './_db.js';
 
 const MODEL = 'claude-opus-5-5';
 // If a reply is ever declined by a safety classifier, the API retries it on a fallback model.
@@ -23,7 +28,7 @@ const RECORD_SEPARATOR = '\u001e';
 const SOUNDS = ['fireplace', 'rain', 'wind', 'water', 'crowd', 'quiet'];
 
 let client;
-const anthropic = () => (client ??= new Anthropic());
+export const anthropic = () => (client ??= new Anthropic());
 
 export default async function handler(req, res) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -130,6 +135,9 @@ const Bible = z.object({
 function playersBlock(players = []) {
   return players.map((p, i) => {
     const who = i === 0 ? 'Player 1 (the one reading now, "you")' : `Player ${i + 1}`;
+    if (p.remote) {
+      return `${who}: ${p.name} — another real person living in this same world, in their own scenes. Never speak, act, feel or decide for them. They can appear in your scene only if they are in the same place, and then only in passing (seen across a room, a note they left, a rumour about them).${p.look ? `\n  Look: ${p.look}` : ''}`;
+    }
     const status = p.joined === false ? ' — has not joined yet: you play them, true to this description' : '';
     return `${who}: ${p.name}${status}
   Look: ${p.look || '—'}
@@ -271,7 +279,18 @@ ${(L.facts || []).slice(-40).map((f) => `- ${f}`).join('\n') || '- (none yet)'}
 Open threads:
 ${open || '- (none)'}
 Relationships (score from -10 hostile to +10 devoted):
-${rel || '- (all neutral so far)'}`;
+${rel || '- (all neutral so far)'}${meanwhileBlock(story)}`;
+}
+
+/** Shared worlds: what the other players lived recently. Canon, but not this player's scene. */
+function meanwhileBlock(story) {
+  const items = story.meanwhile || [];
+  if (!items.length) return '';
+  return `
+
+MEANWHILE, ELSEWHERE IN THIS SAME WORLD (other players' scenes; canon, never contradict them)
+${items.map((m) => `- ${m.player}${m.place ? ` at ${m.place}` : ''}: ${m.did ? `${m.did} → ` : ''}${(m.narration || m.preview || '').replace(/\s+/g, ' ').slice(0, 500)}`).join('\n')}
+Let these ripple into Player 1's scene only through what they could notice: a changed object, a rumour, a character's new mood or what they let slip. Do not retell them, and do not move Player 1 to where the others are.`;
 }
 
 /** The last few rounds, as conversation turns: players' actions -> narration. */
@@ -285,7 +304,16 @@ function recentRounds(story) {
   return out;
 }
 
-async function turn(res, { story, actions }) {
+async function turn(res, body) {
+  let { story, actions } = body;
+  let shared = null;
+  if (body.shared) {
+    if (!sharedConfigured()) throw httpError(503, 'Shared worlds need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the server.');
+    shared = await loadAs(body.shared);
+    story = narratorView(shared);
+    // you can only ever act as yourself
+    actions = (actions || []).slice(0, 1).map((a) => ({ player: shared.me.name, text: String(a?.text || '') }));
+  }
   if (!story?.bible) throw httpError(400, 'Missing story.');
   if (!Array.isArray(actions) || !actions.some((a) => a?.text?.trim())) throw httpError(400, 'What do you do?');
   const act = actions.filter((a) => a?.text?.trim()).map((a) => `${a.player}: ${String(a.text).slice(0, 1500)}`).join('\n');
@@ -312,7 +340,8 @@ async function turn(res, { story, actions }) {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('X-Accel-Buffering', 'no');
-  stream.on('text', (delta) => res.write(delta));
+  let narration = '';
+  stream.on('text', (delta) => { narration += delta; res.write(delta); });
 
   let record = null;
   let stopReason = null;
@@ -329,7 +358,53 @@ async function turn(res, { story, actions }) {
     if (err instanceof Anthropic.APIError) throw err;
     console.warn('[story] could not read record_turn', err); // malformed tool JSON: keep the narration, skip the record
   }
+  if (shared && narration.trim()) {
+    try {
+      const saved = await insertTurn(shared.world.code, shared.me.id, { kind: 'turn', actions, narration: narration.trim(), record });
+      return res.end(`${RECORD_SEPARATOR}${JSON.stringify({ record, stopReason, saved })}`);
+    } catch (err) {
+      console.error('[story] could not save shared turn', err);
+      return res.end(`${RECORD_SEPARATOR}${JSON.stringify({ record, stopReason, saveError: err.message })}`);
+    }
+  }
   res.end(`${RECORD_SEPARATOR}${JSON.stringify({ record, stopReason })}`);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Arriving in a shared world                                          */
+/* ------------------------------------------------------------------ */
+
+const Arrival = z.object({
+  look: z.string().describe('How the new player looks here, 1 sentence, built from what they said about themselves'),
+  tag: z.string().describe('A short label under their name, e.g. "New arrival · Year 5" or "Painter · Montparnasse"'),
+  want: z.string().describe('What they want most in this world, 1 sentence'),
+  secret: z.string().describe('A secret only they and the narrator know, that ties them to this world'),
+  scene: z.number().int().describe('Index of the place they wake up in'),
+  time: z.string().describe('In-world time as they arrive'),
+  narration: z.string().describe('Their arrival scene as 5-8 beats in the scene format: they wake up or step into one place; first what they see, hear and smell; one small sign that others already live here (something another player did); then a cast member notices them; end on that character\'s line to them'),
+  choices: z.array(z.string()).describe('3 suggested replies to the last line, under 10 words each'),
+});
+
+/** Write a new player's way into a world others already live in. `story` is their view (see narratorView). */
+export async function arrive(story) {
+  const me = story.players[0];
+  const response = await anthropic().messages.parse({
+    model: MODEL,
+    max_tokens: 8000,
+    ...FALLBACK,
+    output_config: { effort: 'medium', format: zodOutputFormat(Arrival) },
+    system: [
+      { type: 'text', text: `${NARRATOR}\n\n${bibleBlock(story)}` },
+      { type: 'text', text: ledgerBlock(story) },
+    ],
+    messages: [{
+      role: 'user',
+      content: `${me.name} is joining this world for the first time, as a new player. ${me.description ? `They describe themselves: "${String(me.description).slice(0, 400)}". ` : 'They have not described themselves: make them someone who belongs here and is interesting to be. '}Write the moment they arrive. They live their own scenes from now on, in the same world and canon as everyone else. Write in the language of the story.`,
+    }],
+  });
+  if (response.stop_reason === 'refusal') throw httpError(422, 'This world couldn’t take in that character. Try describing yourself differently.');
+  if (!response.parsed_output) throw httpError(502, 'Your arrival came back incomplete. Please try again.');
+  return response.parsed_output;
 }
 
 /* ------------------------------------------------------------------ */

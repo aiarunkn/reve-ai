@@ -29,8 +29,10 @@ live anywhere else, your decisions have lasting consequences, and the world reme
 - **Sound**: a generative ambient soundscape for the story's feeling, which softens while voices read.
 - **Journal**: the cast and where you stand with each of them, open threads, your choices next to their
   consequences, places, and players.
-- **Built for multiplayer**: every turn is a round with one action per player. Until a friend joins, the
-  narrator plays their character true to your description. Real invites need a shared database (next step).
+- **Dream together**: tap the invite button in any story to get a 6-letter code (like a game lobby).
+  Friends type the code or open the link, pick a name and a color, and wake up in the same world.
+  Everyone plays their own scenes at their own pace, but the canon is shared: what one player does
+  ripples into everyone else's story ("Meanwhile, Aya…"). See **Shared worlds** below.
 
 ### Also in Reve
 - **Worlds**: photos and a description become a place with one character you talk to, who remembers you.
@@ -64,6 +66,7 @@ src/
     PlantSeedModal.jsx, WeavingOverlay.jsx
     MemoryRoom.jsx (the game HUD), ExploreScene.jsx (three.js world), ParticleCanvas.jsx
 api/panorama.js              Vercel serverless function → Blockade Labs (keeps the key secret)
+api/shared.js, api/_db.js    shared worlds (Supabase); supabase/schema.sql creates the tables
 ```
 
 ## Waking up the characters (Anthropic API key)
@@ -83,6 +86,33 @@ retries it on a fallback model (`fallbacks: "default"`).
 memory and recent conversation (cached between turns). To spend less, switch `MODEL` in `api/reve.js`
 to `claude-haiku-5-5`. Before sharing the site publicly, add rate limiting or a login: anyone with the
 URL could otherwise run up your bill.
+
+## Shared worlds (Supabase)
+
+One desired reality, many players. Each player lives their own scenes; the world's canon (facts,
+relationships, open threads, chapter) is the fold of everyone's turns, so two friends playing at the
+same moment never overwrite each other. The narrator reads what the others did lately and lets it
+ripple into your scene through rumours, objects and moods.
+
+1. Create a free project at **supabase.com**.
+2. Supabase → **SQL Editor** → New query → paste `supabase/schema.sql` → **Run**.
+3. Supabase → **Project Settings → API**: copy the Project URL, the `anon` key and the `service_role` key.
+4. **Vercel** → Settings → Environment Variables:
+   - `SUPABASE_URL` = Project URL, `SUPABASE_SERVICE_ROLE_KEY` = service_role key (server only, never `VITE_`)
+   - `VITE_SUPABASE_URL` = Project URL, `VITE_SUPABASE_ANON_KEY` = anon key (live pings + who's online)
+   Then redeploy. Locally, put the same four lines in `.env.local`.
+
+How it fits together:
+- `src/shared/worldState.js` — pure functions both sides use: the shared ledger fold, one player's view, codes.
+- `api/shared.js` — `peek` / `create` (open up a solo story) / `join` (the narrator writes your arrival) / `load`.
+- `api/story.js` → `turn` with `{ shared }` — loads the world on the server, narrates, saves the turn.
+- `src/services/sharedClient.js` — identity per world (localStorage), live channel, invite links (`#/w/CODE`).
+- Only the server touches the tables (row level security is on with no policies). The browser's anon key
+  is used only for Realtime broadcast/presence on the `world:<CODE>` channel.
+- Each device paints its own copy of a world's pictures (cached locally).
+
+**Cost safety:** anyone with a code can play in that world and spend narrator credits. Add rate limiting
+or a login before sharing codes publicly.
 
 ## Illustrations (OpenAI API key)
 

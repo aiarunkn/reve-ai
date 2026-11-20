@@ -4,6 +4,8 @@ import WorldMap from './components/WorldMap';
 import PlantSeedModal from './components/PlantSeedModal';
 import CreateWorldModal from './components/CreateWorldModal';
 import WeavingOverlay from './components/WeavingOverlay';
+import JoinWorld from './components/JoinWorld';
+import { shareStory, leaveShared, identityFor, sharedCode, ensureIndexed } from './services/sharedClient';
 import { SEED_MEMORIES } from './data/seedMemories';
 import { loadMemories, saveMemories } from './services/storage';
 import { generateMemoryImage } from './services/memoryGenerator';
@@ -64,6 +66,8 @@ export default function App() {
   const [weaving, setWeaving] = useState(null); // { mood, preview, stage, progress }
   const [soundOn, setSoundOn] = useState(false);
   const [toast, setToast] = useState('');
+  const [joining, setJoining] = useState(null); // null, or the code being joined ('' = typing one)
+  const [inviteFor, setInviteFor] = useState(null); // a world that was just opened up: show its code
   const mapScroll = useRef(0);
 
   const roomIndex = route.view === 'room' ? memories.findIndex((m) => m.id === route.id) : -1;
@@ -75,6 +79,20 @@ export default function App() {
   useEffect(() => {
     if ((route.view === 'room' && !room) || (route.view === 'world' && !world) || (route.view === 'story' && !storyEntry)) go({ view: 'map' }, { replace: true });
   }, [route, room, world, storyEntry, go]);
+
+  // an invite link: straight in if this device is already in that world, otherwise join it
+  useEffect(() => {
+    if (route.view !== 'join') return;
+    const code = route.id;
+    if (identityFor(code)) {
+      ensureIndexed(code);
+      setStories(loadStoryIndex());
+      go({ view: 'story', id: `w-${code}` }, { replace: true });
+    } else {
+      setJoining(code);
+      go({ view: 'map' }, { replace: true });
+    }
+  }, [route, go]);
 
   // soundscape follows the room you're in
   useEffect(() => {
@@ -254,8 +272,24 @@ export default function App() {
     }
   };
 
+  // open a solo story up to friends: it gets a code and moves to its shared home
+  const openStory = async (story, color) => {
+    const view = await shareStory(story, color);
+    setStories(loadStoryIndex());
+    setInviteFor(view.id);
+    go({ view: 'story', id: view.id }, { replace: true });
+  };
+
   const removeStory = async () => {
     if (!storyEntry) return;
+    const code = sharedCode(storyEntry.id);
+    if (code) {
+      if (!window.confirm(`Leave “${storyEntry.title}” on this device? The world carries on for your friends. You can come back with the code ${code}, as a new arrival.`)) return;
+      await leaveShared(code);
+      setStories(loadStoryIndex());
+      go({ view: 'map' }, { replace: true });
+      return;
+    }
     if (!window.confirm(`Close “${storyEntry.title}” forever? Every chapter, choice and place will be gone.`)) return;
     await deleteStory(storyEntry.id);
     setStories(loadStoryIndex());
@@ -290,7 +324,7 @@ export default function App() {
         {storyEntry ? (
           <motion.div key={storyEntry.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, filter: 'blur(10px)' }} transition={{ duration: 0.8 }} className="fixed inset-0">
             <Suspense fallback={<div className="fixed inset-0 bg-midnight" />}>
-              <StoryView storyId={storyEntry.id} onExit={() => { setStories(loadStoryIndex()); exit(); }} onDelete={removeStory} notify={setToast} />
+              <StoryView storyId={storyEntry.id} onExit={() => { setStories(loadStoryIndex()); setInviteFor(null); exit(); }} onDelete={removeStory} notify={setToast} onShare={openStory} openInvite={inviteFor === storyEntry.id} />
             </Suspense>
           </motion.div>
         ) : world ? (
@@ -342,6 +376,7 @@ export default function App() {
               stories={stories}
               onEnterStory={(id) => { mapScroll.current = window.scrollY; go({ view: 'story', id }); }}
               onBegin={(premise) => beginNewStory({ premise })}
+              onJoin={() => setJoining('')}
               restoreScroll={mapScroll.current}
             />
           </motion.div>
@@ -349,6 +384,18 @@ export default function App() {
       </AnimatePresence>
 
       <PlantSeedModal open={planting} onClose={() => setPlanting(false)} onSubmit={plant} />
+      <JoinWorld
+        open={joining !== null}
+        initialCode={joining || ''}
+        onClose={() => setJoining(null)}
+        onWeave={(mood) => setWeaving(mood ? { mood, stage: 'arrive' } : null)}
+        onJoined={(view) => {
+          setJoining(null);
+          setStories(loadStoryIndex());
+          mapScroll.current = 0;
+          go({ view: 'story', id: view.id });
+        }}
+      />
       <CreateWorldModal open={imagining} onClose={() => setImagining(false)} onSubmit={imagine} />
       <WeavingOverlay moodKey={weaving?.mood} preview={weaving?.preview} stage={weaving?.stage} progress={weaving?.progress} />
 

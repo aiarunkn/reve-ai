@@ -13,6 +13,7 @@ const STAGES = {
   room: 'Lighting the room...',
   places: 'Building the places...',
   scenes: 'Painting your scenes...',
+  arrive: 'Writing your way in...',
 };
 
 export default function WeavingOverlay({ moodKey, preview, stage = 'paint', progress }) {

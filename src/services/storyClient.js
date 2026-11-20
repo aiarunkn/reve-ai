@@ -25,8 +25,9 @@ export async function beginStory({ premise, players, photos }) {
  * Play one round. `onText(narrationSoFar)` fires as the narration streams in.
  * Resolves to { narration, record } where record holds the turn's consequences (or null).
  */
-export async function playTurn(story, actions, onText, signal) {
-  const res = await post({ action: 'turn', story: slimStory(story), actions }, signal);
+export async function playTurn(story, actions, onText, signal, shared = null) {
+  // in a shared world the server loads the world itself; only who you are is sent
+  const res = await post(shared ? { action: 'turn', shared, actions } : { action: 'turn', story: slimStory(story), actions }, signal);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let raw = '';
@@ -41,10 +42,11 @@ export async function playTurn(story, actions, onText, signal) {
   const cut = raw.indexOf(SEP);
   const narration = (cut === -1 ? raw : raw.slice(0, cut)).trim();
   let record = null;
+  let saveError = null;
   if (cut !== -1) {
-    try { record = JSON.parse(raw.slice(cut + 1)).record; } catch { record = null; }
+    try { ({ record, saveError = null } = JSON.parse(raw.slice(cut + 1))); } catch { record = null; }
   }
-  return { narration, record };
+  return { narration, record, saveError };
 }
 
 export async function welcomeBack(story, awayHours) {

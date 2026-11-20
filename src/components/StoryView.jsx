@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, Volume2, VolumeX, MoreHorizontal, SendHorizontal, Pencil, BookOpen, Users } from 'lucide-react';
+import { ArrowLeft, Volume2, VolumeX, MoreHorizontal, SendHorizontal, Pencil, BookOpen, Users, UserPlus } from 'lucide-react';
 import ParticleCanvas from './ParticleCanvas';
 import StoryJournal from './StoryJournal';
+import InviteSheet from './InviteSheet';
 import { getMood } from '../data/moods';
 import { loadStory, saveStory, loadPlaceImages, applyRecord } from '../services/storyStore';
 import { playTurn, welcomeBack, summarizeTurns, NotConfiguredError } from '../services/storyClient';
@@ -11,6 +12,8 @@ import { ensureStoryArt } from '../services/storyArt';
 import { segmentNarration } from '../services/voiceService';
 import { ambient } from '../services/ambientAudio';
 import { toBeats, placeSounds } from '../services/scenes';
+import { sharedCode, loadShared, connectLive, identityFor } from '../services/sharedClient';
+import { previewOf } from '../shared/worldState';
 
 const pref = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch { return d; } };
 const setPref = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { /* private mode */ } };
@@ -43,7 +46,14 @@ function useTypewriter(text, key) {
   return [text.slice(0, n), n >= text.length, () => setN(text.length)];
 }
 
-export default function StoryView({ storyId, onExit, onDelete, notify }) {
+/** The newest things the others did that this view hasn't shown yet. */
+function newsSince(before, after) {
+  const seen = Math.max(0, ...(before?.meanwhile || []).map((m) => m.id));
+  return (after?.meanwhile || []).filter((m) => m.fresh && m.id > seen);
+}
+
+export default function StoryView({ storyId, onExit, onDelete, notify, onShare, openInvite = false }) {
+  const code = sharedCode(storyId); // set when this is a shared world
   const [story, setStory] = useState(null);
   const [places, setPlaces] = useState([]);
   const [portraits, setPortraits] = useState([]);
@@ -60,18 +70,33 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
   const [panel, setPanel] = useState(null); // 'journal' | 'book'
   const [credit, setCredit] = useState(null); // who took the photo of this place
   const [soundOn, setSoundOn] = useState(() => pref('reve-ai:story-sound', true));
+  const [invite, setInvite] = useState(openInvite);
+  const [here, setHere] = useState([]); // who's in this world right now
   const storyRef = useRef(null);
   const abortRef = useRef(null);
+  const busyRef = useRef(false);
+  const liveRef = useRef(null);
+  const exitRef = useRef(onExit);
   storyRef.current = story;
+  busyRef.current = busy;
+  exitRef.current = onExit;
 
-  const commit = useCallback((next) => { setStory(next); saveStory(next); }, []);
+  // solo stories live on this device; shared worlds live on the server
+  const commit = useCallback((next) => { setStory(next); if (!sharedCode(next.id)) saveStory(next); }, []);
 
   // load the story, and welcome you back if you've been away
   useEffect(() => {
     let alive = true;
     const urls = [];
     (async () => {
-      const s = await loadStory(storyId);
+      let s;
+      try {
+        s = code ? await loadShared(code) : await loadStory(storyId);
+      } catch (err) {
+        notify?.(err.message || 'Couldn’t open this world.');
+        if (alive) exitRef.current?.();
+        return;
+      }
       if (!alive || !s) return;
       setStory(s);
       loadPlaceImages(storyId, s.bible.places.length).then((u) => { urls.push(...u); if (alive) setPlaces(u); });
@@ -86,6 +111,12 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
         if (alive) setMoments(m);
       });
       ensureStoryArt(s); // paints missing places and portraits in the background
+      if (code) {
+        // shared worlds: no recap call needed, the others' scenes are the news
+        const news = s.meanwhile.filter((m) => m.fresh);
+        if (news.length && s.turns.length > 1) setRecap({ kind: 'meanwhile', items: news });
+        return;
+      }
       const awayHours = (Date.now() - new Date(s.lastPlayedAt).getTime()) / 36e5;
       if (awayHours >= AWAY_HOURS_FOR_RECAP && s.turns.length > 1) {
         setBusy(true);
@@ -109,7 +140,28 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
       }
     })();
     return () => { alive = false; urls.forEach((u) => u && URL.revokeObjectURL(u)); abortRef.current?.abort(); };
-  }, [storyId, commit]);
+  }, [storyId, commit]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // shared worlds: hear when someone else plays, and who's here right now
+  const meId = story?.players[0]?.id;
+  useEffect(() => {
+    if (!code || !meId) return;
+    const me = storyRef.current.players[0];
+    const refresh = async () => {
+      if (busyRef.current) return; // your own turn reloads the world when it lands
+      const before = storyRef.current;
+      const next = await loadShared(code).catch(() => null);
+      if (!next || busyRef.current) return;
+      setStory(next);
+      const news = newsSince(before, next);
+      const n = news[news.length - 1];
+      if (n) notify?.(`✦ Meanwhile, ${n.player.split(' ')[0]}${n.place ? ` · ${n.place}` : ''}: ${n.preview}`);
+      if (next.chapter.n !== before?.chapter.n) notify?.(`Chapter ${next.chapter.n}: ${next.chapter.title}`);
+    };
+    const conn = connectLive(code, me, { onPing: refresh, onHere: setHere });
+    liveRef.current = conn;
+    return () => { conn.close(); liveRef.current = null; };
+  }, [code, meId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // new paintings arriving from the background art queue
   useEffect(() => onAsset(storyId, async (kind) => {
@@ -167,8 +219,19 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      const { narration, record } = await playTurn(story, actions, setLive, ctrl.signal);
+      const shared = code ? { code, ...identityFor(code) } : null;
+      const { narration, record, saveError } = await playTurn(story, actions, setLive, ctrl.signal, shared);
       if (!narration) throw new Error('The scene went quiet. Try again.');
+      if (code) {
+        // the server saved your turn for everyone: reload your view of the world
+        if (saveError) notify?.(`Your scene played, but couldn’t be saved for the others (${saveError}).`);
+        const before = story;
+        const next = await loadShared(code);
+        setStory(next);
+        liveRef.current?.announce({ preview: record?.consequences?.[0]?.text || previewOf({ narration }) });
+        if (next.chapter.n !== before.chapter.n) notify?.(`Chapter ${next.chapter.n}: ${next.chapter.title}`);
+        return;
+      }
       const index = story.turns.length;
       const turn = { kind: 'turn', chapter: story.chapter.n, actions, narration, choices: record?.choices || [], consequences: record?.consequences || [], time: record?.time, at: new Date().toISOString() };
       let next = applyRecord({ ...story, turns: [...story.turns, turn], lastPlayedAt: new Date().toISOString() }, record, index);
@@ -246,12 +309,12 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
   // space / enter / → to continue
   useEffect(() => {
     const onKey = (e) => {
-      if (writing || panel || recap || menu) return;
+      if (writing || panel || recap || menu || invite) return;
       if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowRight') { e.preventDefault(); advance(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [advance, writing, panel, recap, menu]);
+  }, [advance, writing, panel, recap, menu, invite]);
 
   if (!story) return <div className="fixed inset-0 bg-midnight" />;
 
@@ -259,6 +322,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
   const bg = (!streaming && moments[lastIndex]) || places[story.scene];
   const portrait = onStage ? portraits[onStage.index] : null;
   const nameTag = current?.you ? me.name.split(' ')[0] : current?.speaker || null;
+  const online = new Set(here.map((h) => h.playerId));
 
   return (
     <div className="fixed inset-0 select-none overflow-clip" style={{ background: mood.bg[0] }}>
@@ -296,9 +360,17 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
         <div className="min-w-0 text-center">
           <p className="truncate font-serif text-lg text-parchment text-glow">{place?.name}</p>
           <p className="truncate text-[11px] uppercase tracking-[0.25em] text-parchment/50">{story.time}</p>
+          {code && story.players.length > 1 && (
+            <button type="button" onClick={() => setInvite(true)} className="mx-auto mt-1 flex items-center justify-center gap-1" aria-label={`${story.players.length} dreamers in this world`}>
+              {story.players.slice(0, 8).map((p) => (
+                <span key={p.id} title={`${p.name}${online.has(p.id) ? ' · here now' : ''}`} className="h-2 w-2 rounded-full transition-opacity" style={{ background: p.color, opacity: online.has(p.id) ? 1 : 0.35, boxShadow: online.has(p.id) ? `0 0 8px ${p.color}` : 'none' }} />
+              ))}
+            </button>
+          )}
         </div>
         <div className="relative flex gap-2">
           <button type="button" onClick={() => { const v = !soundOn; setSoundOn(v); setPref('reve-ai:story-sound', v); }} aria-pressed={soundOn} className="glass-btn rounded-full p-2.5 text-parchment/85" aria-label={soundOn ? 'Mute sound' : 'Turn sound on'}>{soundOn ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
+          <button type="button" onClick={() => setInvite(true)} className="glass-btn rounded-full p-2.5 text-parchment/85" aria-label={code ? 'Invite friends' : 'Dream together with friends'}><UserPlus size={18} /></button>
           <button type="button" onClick={() => setMenu((v) => !v)} className="glass-btn rounded-full p-2.5 text-parchment/85" aria-label="More" aria-expanded={menu}><MoreHorizontal size={18} /></button>
           {menu && (
             <div className="glass absolute right-0 top-12 w-52 overflow-hidden rounded-2xl py-1.5 text-sm">
@@ -347,7 +419,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
           ) : (
             <button type="button" onClick={advance} className="glass relative block w-full rounded-3xl px-5 pb-5 pt-6 text-left sm:px-7" aria-label="Continue">
               {nameTag && (
-                <span className="absolute -top-3.5 left-5 rounded-full px-3.5 py-1 font-serif text-[16px] text-midnight sm:left-7" style={{ background: current?.you ? '#f3e9d7' : mood.primary }}>{nameTag}</span>
+                <span className="absolute -top-3.5 left-5 rounded-full px-3.5 py-1 font-serif text-[16px] text-midnight sm:left-7" style={{ background: current?.you ? me.color || '#f3e9d7' : mood.primary }}>{nameTag}</span>
               )}
               <div className="min-h-[4.5rem] font-serif text-[1.2rem] leading-[1.6] text-parchment sm:text-[1.3rem]">
                 {waiting || (!current && busy) ? (
@@ -386,7 +458,24 @@ export default function StoryView({ storyId, onExit, onDelete, notify }) {
           </motion.div>
         )}
         {panel === 'journal' && <StoryJournal story={story} mood={mood} places={places} portraits={portraits} onClose={() => setPanel(null)} onDelete={onDelete} />}
-        {recap && (
+        {invite && <InviteSheet key="invite" story={story} here={here} mood={mood} onClose={() => setInvite(false)} onOpen={(color) => onShare?.(story, color)} />}
+        {recap?.kind === 'meanwhile' && (
+          <motion.div key="meanwhile" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-md" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label="Meanwhile">
+            <motion.div initial={{ y: 20, scale: 0.97 }} animate={{ y: 0, scale: 1 }} className="w-full max-w-lg rounded-3xl border px-7 py-8 text-center" style={{ borderColor: `${mood.primary}44`, background: `linear-gradient(180deg, ${mood.bg[1]}f5, ${mood.bg[0]}fa)` }}>
+              <h2 className="font-serif text-3xl italic text-parchment">Meanwhile…</h2>
+              <ul className="mt-5 space-y-4 text-left">
+                {recap.items.slice(-4).map((m) => (
+                  <li key={m.id} className="border-l-2 pl-4" style={{ borderColor: m.color || mood.primary }}>
+                    <p className="text-[11px] uppercase tracking-[0.2em]" style={{ color: m.color || mood.primary }}>{m.player}{m.place ? ` · ${m.place}` : ''}</p>
+                    <p className="mt-1 font-serif text-lg leading-snug text-parchment/85">{m.preview}</p>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" onClick={() => { setRecap(null); setBeat(0); }} className="btn-lantern mt-7 rounded-full px-6 py-2.5 text-sm font-medium">Step back in</button>
+            </motion.div>
+          </motion.div>
+        )}
+        {recap && recap.kind !== 'meanwhile' && (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-md" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label="Previously">
             <motion.div initial={{ y: 20, scale: 0.97 }} animate={{ y: 0, scale: 1 }} className="w-full max-w-lg rounded-3xl border px-7 py-8 text-center" style={{ borderColor: `${mood.primary}44`, background: `linear-gradient(180deg, ${mood.bg[1]}f5, ${mood.bg[0]}fa)` }}>
               <h2 className="font-serif text-3xl italic text-parchment">Previously…</h2>

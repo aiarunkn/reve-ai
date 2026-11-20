@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Feather, ArrowRight } from 'lucide-react';
+import { Feather, ArrowRight, Users } from 'lucide-react';
 import { loadPlaceImages } from '../services/storyStore';
 import { getMood } from '../data/moods';
 import Landscape from './Landscape';
@@ -62,7 +62,7 @@ function SectionTitle({ children, sub }) {
   );
 }
 
-export default function WorldMap({ stories = [], onEnterStory, onBegin, restoreScroll }) {
+export default function WorldMap({ stories = [], onEnterStory, onBegin, onJoin, restoreScroll }) {
   useEffect(() => {
     if (restoreScroll) window.scrollTo(0, restoreScroll);
   }, [restoreScroll]);
@@ -104,6 +104,11 @@ export default function WorldMap({ stories = [], onEnterStory, onBegin, restoreS
             </button>
           </form>
           <p className="mt-3 text-xs text-parchment/45">A place, a time, a feeling. You'll wake up inside it.</p>
+          {onJoin && (
+            <button type="button" onClick={onJoin} className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm text-parchment/70 transition-colors hover:border-gold/50 hover:text-parchment">
+              <Users size={15} className="text-gold" /> Have a code? Join your friends
+            </button>
+          )}
         </motion.header>
 
         {storyPortals.length > 0 && (
