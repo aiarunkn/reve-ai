@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 
-/** Tiny hash router: '#/' is the world map, '#/room/<id>' is a memory room. */
+/**
+ * Tiny hash router:
+ *   #/               world map
+ *   #/room/<id>      a memory room
+ *   #/world/<id>     an imagined world
+ */
 function parse() {
-  const m = window.location.hash.match(/^#\/room\/(.+)$/);
-  return m ? { view: 'room', id: decodeURIComponent(m[1]) } : { view: 'map' };
+  const m = window.location.hash.match(/^#\/(room|world)\/(.+)$/);
+  return m ? { view: m[1], id: decodeURIComponent(m[2]) } : { view: 'map' };
 }
 
 export function useHashRoute() {
@@ -16,7 +21,7 @@ export function useHashRoute() {
   }, []);
 
   const go = useCallback((next, { replace = false } = {}) => {
-    const hash = next.view === 'room' ? `#/room/${encodeURIComponent(next.id)}` : '#/';
+    const hash = next.view === 'map' ? '#/' : `#/${next.view}/${encodeURIComponent(next.id)}`;
     if (replace) window.history.replaceState(null, '', hash);
     else window.history.pushState(null, '', hash);
     setRoute(parse());

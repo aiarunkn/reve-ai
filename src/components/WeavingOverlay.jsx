@@ -8,6 +8,8 @@ const STAGES = {
   depth: 'Waking the dream model...',
   'depth-think': 'Feeling out the shape of this place...',
   world: 'Painting the world around it...',
+  dream: 'Dreaming up your world...',
+  scenes: 'Painting your scenes...',
 };
 
 export default function WeavingOverlay({ moodKey, preview, stage = 'paint', progress }) {

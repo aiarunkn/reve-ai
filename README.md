@@ -1,13 +1,20 @@
 # Reve AI
 
-*Rêve* is French for "dream". Reve AI turns a photo, a feeling and a message into a place you can step inside.
+*Rêve* is French for "dream". Reve AI is a living visual diary of imagined worlds: you upload up to five of
+your own photos, describe a person or place you want to imagine, and it becomes a small world you belong to,
+with one inhabitant you can talk to.
 
-- **Step inside the photo.** An AI depth model (Depth Anything V2) runs in your browser and rebuilds the
-  photo in 3D, so near things stand in front of far things and shift as you look around.
-- **A 360° world around you.** Blockade Labs' Skybox AI paints the rest of the world around your photo.
-  Without a key, the app paints its own 360° world from the photo's colours.
-- **Find your message.** Up to 5 glowing fragments are hidden around you, some of them behind you.
-  Each one you catch recovers part of your message, and finding them all unfolds the full letter.
+**Hypothesis:** people don’t just want to consume fictional worlds; they want to belong to worlds they created.
+
+- **Illustrated scenes.** Each photo becomes a place in the world, painted in one consistent style.
+- **One character.** Claude writes a "world bible" from your photos and words: the world’s name, its places,
+  small truths about it, and one inhabitant with a personality, a voice, a longing and a secret.
+- **Conversations.** Talk with them (text). Replies stream in, and they move you between places as you talk.
+- **Persistent memory.** After conversations, the character reflects: they remember what you shared, the
+  relationship deepens (stranger → acquaintance → friend → confidant → kindred), and they change over time.
+  You can see and edit what they remember in the Memory tab.
+- **Stories.** Ask them to tell you a story set in your world; stories are kept to reread.
+- **Memory rooms** (the earlier part of the app): a single photo + feeling + letter, which you can step inside in 3D.
 
 ```bash
 npm install
@@ -38,6 +45,24 @@ src/
     MemoryRoom.jsx (the game HUD), ExploreScene.jsx (three.js world), ParticleCanvas.jsx
 api/panorama.js              Vercel serverless function → Blockade Labs (keeps the key secret)
 ```
+
+## Waking up the characters (Anthropic API key)
+
+Worlds are created and characters talk through `api/reve.js`, a Vercel serverless function that calls
+Claude (`claude-opus-5-5`) with the official Anthropic SDK. The key stays on the server.
+
+1. Create a key at **console.anthropic.com** → API Keys (pay-as-you-go).
+2. **On Vercel:** Project → Settings → Environment Variables → `ANTHROPIC_API_KEY`, then redeploy.
+   **Locally:** put `ANTHROPIC_API_KEY=...` in `.env.local` and restart `npm run dev`.
+
+Without a key, you can still create a world: its scenes are painted, but its inhabitant stays "asleep"
+until a key is added. If a reply is ever declined by Claude's safety classifiers, the API automatically
+retries it on a fallback model (`fallbacks: "default"`).
+
+**Cost:** world creation reads up to 5 photos once; each chat message sends the character sheet, their
+memory and recent conversation (cached between turns). To spend less, switch `MODEL` in `api/reve.js`
+to `claude-haiku-5-5`. Before sharing the site publicly, add rate limiting or a login: anyone with the
+URL could otherwise run up your bill.
 
 ## Turning on AI 360° worlds (Blockade Labs)
 

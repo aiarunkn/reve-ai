@@ -70,7 +70,7 @@ export default function MemoryRoom({ memory, index, total, onPrev, onNext, onExi
   const latest = order.length ? parts[order[order.length - 1]] : null;
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-midnight select-none">
+    <div className="fixed inset-0 overflow-clip bg-midnight select-none">
       <ExploreScene
         image={image}
         depth={depth}

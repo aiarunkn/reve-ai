@@ -2,21 +2,31 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { AnimatePresence, motion } from 'framer-motion';
 import WorldMap from './components/WorldMap';
 import PlantSeedModal from './components/PlantSeedModal';
+import CreateWorldModal from './components/CreateWorldModal';
 import WeavingOverlay from './components/WeavingOverlay';
 import { SEED_MEMORIES } from './data/seedMemories';
 import { loadMemories, saveMemories } from './services/storage';
 import { generateMemoryImage } from './services/memoryGenerator';
 import { ambient } from './services/ambientAudio';
-import { estimateDepth } from './services/depthEstimator';
+import { estimateDepth, drawFit, loadImage } from './services/depthEstimator';
+import { loadWorlds, saveWorlds, newMemory, saveScene, deleteWorldAssets } from './services/worldStore';
+import { dreamWorld, sleepingBible, NotConfiguredError } from './services/reveClient';
 import { paintPanorama, startAIPanorama, waitForAIPanorama } from './services/panoramaService';
 import { putAsset, deleteAssets, emitAsset } from './services/assetStore';
 import { useHashRoute } from './hooks/useHashRoute';
 
 // the 3D room (three.js) only downloads when you first step inside a memory
 const MemoryRoom = lazy(() => import('./components/MemoryRoom'));
+const WorldView = lazy(() => import('./components/WorldView'));
 
 const WEAVE_MIN_MS = 2000;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const newId = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+/** A photo as a modest JPEG data URL, small enough to send to the world-builder. */
+async function photoForAI(file) {
+  return drawFit(await loadImage(file), 1024).toDataURL('image/jpeg', 0.85);
+}
 
 // AI panoramas take a minute or two, so they're painted in the background and
 // resumed after a reload (the job id is saved on the memory).
@@ -44,6 +54,8 @@ export default function App() {
   const memories = useMemo(() => [...SEED_MEMORIES, ...userMemories], [userMemories]);
   const [route, go] = useHashRoute();
   const [planting, setPlanting] = useState(false);
+  const [imagining, setImagining] = useState(false);
+  const [worlds, setWorlds] = useState(loadWorlds);
   const [weaving, setWeaving] = useState(null); // { mood, preview, stage, progress }
   const [soundOn, setSoundOn] = useState(false);
   const [toast, setToast] = useState('');
@@ -51,11 +63,12 @@ export default function App() {
 
   const roomIndex = route.view === 'room' ? memories.findIndex((m) => m.id === route.id) : -1;
   const room = roomIndex >= 0 ? memories[roomIndex] : null;
+  const world = route.view === 'world' ? worlds.find((w) => w.id === route.id) || null : null;
 
-  // unknown room id in the URL → back to the map
+  // unknown room or world id in the URL → back to the map
   useEffect(() => {
-    if (route.view === 'room' && !room) go({ view: 'map' }, { replace: true });
-  }, [route, room, go]);
+    if ((route.view === 'room' && !room) || (route.view === 'world' && !world)) go({ view: 'map' }, { replace: true });
+  }, [route, room, world, go]);
 
   // soundscape follows the room you're in
   useEffect(() => {
@@ -73,6 +86,14 @@ export default function App() {
     setUserMemories((list) => {
       const next = list.map((m) => (m.id === id ? { ...m, ...patch } : m));
       saveMemories(next);
+      return next;
+    });
+  }, []);
+
+  const updateWorld = useCallback((id, fn) => {
+    setWorlds((list) => {
+      const next = list.map((w) => (w.id === id ? fn(w) : w));
+      saveWorlds(next);
       return next;
     });
   }, []);
@@ -141,6 +162,62 @@ export default function App() {
     }
   };
 
+  // five photos + a description -> a world bible from Claude -> painted scenes -> step inside
+  const imagine = async ({ files, description }) => {
+    const preview = URL.createObjectURL(files[0]);
+    const id = newId('world');
+    setImagining(false);
+    setWeaving({ mood: 'weightless', preview, stage: 'dream' });
+    try {
+      let bible;
+      try {
+        const [dreamt] = await Promise.all([dreamWorld(await Promise.all(files.map(photoForAI)), description), wait(WEAVE_MIN_MS)]);
+        bible = dreamt;
+      } catch (err) {
+        if (!(err instanceof NotConfiguredError)) throw err;
+        bible = sleepingBible(description, files.length);
+        setToast('Your world is painted, but its inhabitant is asleep until an Anthropic API key is added.');
+      }
+      // exactly one scene per photo, whatever came back
+      bible.scenes = files.map((_, i) => {
+        const s = bible.scenes.find((x) => x.photo_index === i) || bible.scenes[i] || {};
+        return { photo_index: i, name: s.name || `Place ${i + 1}`, description: s.description || '' };
+      });
+
+      setWeaving((w) => ({ ...w, mood: bible.mood, stage: 'scenes' }));
+      for (let i = 0; i < files.length; i++) {
+        await saveScene(id, i, await generateMemoryImage(files[i], bible.mood));
+      }
+
+      const created = { id, createdAt: new Date().toISOString(), description, bible, memory: newMemory(), messages: [], stories: [], unreflected: 0 };
+      setWorlds((list) => {
+        const next = [...list, created];
+        if (!saveWorlds(next)) setToast('Your browser’s storage is full — this world may not be saved.');
+        return next;
+      });
+      mapScroll.current = 0;
+      go({ view: 'world', id });
+    } catch (err) {
+      console.error(err);
+      setToast(err?.message || 'Something went wrong while imagining that world.');
+    } finally {
+      setWeaving(null);
+      URL.revokeObjectURL(preview);
+    }
+  };
+
+  const deleteWorld = () => {
+    if (!world) return;
+    if (!window.confirm(`Let “${world.bible.world_name}” fade away? Its scenes, conversations and stories will be gone for good.`)) return;
+    setWorlds((list) => {
+      const next = list.filter((w) => w.id !== world.id);
+      saveWorlds(next);
+      return next;
+    });
+    deleteWorldAssets(world.id);
+    go({ view: 'map' }, { replace: true });
+  };
+
   const release = () => {
     if (!room || room.seed) return;
     if (!window.confirm(`Release “${room.title}” from your sanctuary? This can’t be undone.`)) return;
@@ -154,7 +231,20 @@ export default function App() {
   return (
     <>
       <AnimatePresence mode="wait">
-        {room ? (
+        {world ? (
+          <motion.div
+            key={world.id}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, filter: 'blur(10px)' }}
+            transition={{ duration: 0.8, ease: 'easeInOut' }}
+            className="fixed inset-0"
+          >
+            <Suspense fallback={<div className="fixed inset-0 bg-midnight" />}>
+              <WorldView world={world} onUpdate={updateWorld} onExit={exit} onDelete={deleteWorld} notify={setToast} />
+            </Suspense>
+          </motion.div>
+        ) : room ? (
           <motion.div
             key={room.id}
             initial={{ opacity: 0, filter: 'blur(10px)' }}
@@ -188,8 +278,11 @@ export default function App() {
           >
             <WorldMap
               memories={memories}
+              worlds={worlds}
               onEnter={enterRoom}
+              onEnterWorld={(id) => { mapScroll.current = window.scrollY; go({ view: 'world', id }); }}
               onPlant={() => setPlanting(true)}
+              onImagine={() => setImagining(true)}
               restoreScroll={mapScroll.current}
             />
           </motion.div>
@@ -197,6 +290,7 @@ export default function App() {
       </AnimatePresence>
 
       <PlantSeedModal open={planting} onClose={() => setPlanting(false)} onSubmit={plant} />
+      <CreateWorldModal open={imagining} onClose={() => setImagining(false)} onSubmit={imagine} />
       <WeavingOverlay moodKey={weaving?.mood} preview={weaving?.preview} stage={weaving?.stage} progress={weaving?.progress} />
 
       <AnimatePresence>

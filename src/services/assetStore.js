@@ -60,6 +60,14 @@ export async function deleteAssets(id) {
   }
 }
 
+export async function deleteAssetKinds(id, kinds) {
+  try {
+    await tx('readwrite', (s) => kinds.forEach((k) => s.delete(`${id}:${k}`)));
+  } catch {
+    /* nothing to delete */
+  }
+}
+
 /* tiny event bus so an open room hears when a background AI panorama lands */
 const listeners = new Map();
 export function onAsset(id, fn) {
