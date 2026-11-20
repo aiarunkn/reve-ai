@@ -3,7 +3,14 @@ import ParticleCanvas from './ParticleCanvas';
 import { getMood } from '../data/moods';
 
 /** The brief, magical "weaving" moment while the memory image is painted. */
-export default function WeavingOverlay({ moodKey, preview }) {
+const STAGES = {
+  paint: 'Weaving your memory into the world...',
+  depth: 'Waking the dream model...',
+  'depth-think': 'Feeling out the shape of this place...',
+  world: 'Painting the world around it...',
+};
+
+export default function WeavingOverlay({ moodKey, preview, stage = 'paint', progress }) {
   const mood = moodKey ? getMood(moodKey) : null;
   return (
     <AnimatePresence>
@@ -64,14 +71,26 @@ export default function WeavingOverlay({ moodKey, preview }) {
             </motion.div>
           </div>
 
-          <motion.p
-            className="relative mt-10 px-6 text-center font-serif text-2xl italic text-parchment text-glow sm:text-3xl"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: [0, 1, 0.7, 1], y: 0 }}
-            transition={{ duration: 2, ease: 'easeOut' }}
-          >
-            Weaving your memory into the world...
-          </motion.p>
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={stage}
+              className="relative mt-10 px-6 text-center font-serif text-2xl italic text-parchment text-glow sm:text-3xl"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.6, ease: 'easeOut' }}
+            >
+              {STAGES[stage] || STAGES.paint}
+            </motion.p>
+          </AnimatePresence>
+          {stage === 'depth' && progress != null && (
+            <div className="relative mt-4 flex flex-col items-center">
+              <div className="h-1 w-56 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${Math.round(progress * 100)}%`, background: mood.primary }} />
+              </div>
+              <p className="mt-2 text-xs text-parchment/50">First time only: downloading a small AI depth model (~27 MB)</p>
+            </div>
+          )}
           <p className="relative mt-3 text-xs uppercase tracking-[0.3em]" style={{ color: mood.primary }}>
             {mood.label} · {mood.weather}
           </p>

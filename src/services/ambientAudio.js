@@ -328,6 +328,30 @@ class AmbientEngine {
     this.scene = null;
   }
 
+  /** A bell for catching a memory fragment; `complete` plays a rising chord instead. */
+  chime(moodKey, complete = false) {
+    if (!this.ensure()) return;
+    const p = PRESETS[moodKey] || PRESETS.nostalgic;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const notes = complete ? [0, 4, 7, 12, 16].map((s, i) => [p.scale[i % p.scale.length] + 12 * Math.floor(i / 3), i * 0.12]) : [[p.scale[(Math.random() * p.scale.length) | 0] + 12, 0], [p.scale[0] + 24, 0.09]];
+    notes.forEach(([s, delay]) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = semi(p.root * 2, s);
+      const g = ctx.createGain();
+      const t = now + delay;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(complete ? 0.09 : 0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + (complete ? 3.5 : 2.2));
+      o.connect(g);
+      g.connect(this.master);
+      g.connect(this.reverb);
+      o.start(t);
+      o.stop(t + 3.6);
+    });
+  }
+
   get playing() {
     return !!this.scene?.alive;
   }

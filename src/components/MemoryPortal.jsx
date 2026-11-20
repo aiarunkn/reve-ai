@@ -37,7 +37,7 @@ export default function MemoryPortal({ memory, index, onEnter }) {
           onMouseLeave={() => setTilt({ x: 0, y: 0 })}
           className="group relative cursor-pointer rounded-t-full outline-none focus-visible:ring-2 focus-visible:ring-lantern/70"
           style={{ perspective: 900 }}
-          aria-label={`Enter memory: ${memory.title}`}
+          aria-label={`Step inside: ${memory.title}`}
         >
           {/* halo */}
           <div

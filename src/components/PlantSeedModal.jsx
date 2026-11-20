@@ -271,7 +271,7 @@ export default function PlantSeedModal({ open, onClose, onSubmit }) {
                   whileTap={canNext ? { scale: 0.97 } : undefined}
                   className="btn-lantern inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 disabled:[animation:none]"
                 >
-                  <Sparkles size={16} /> Enter Memory Room
+                  <Sparkles size={16} /> Step Inside
                 </motion.button>
               )}
             </div>
