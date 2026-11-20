@@ -36,7 +36,7 @@ export function placePrompt(story, i) {
 }
 
 export function portraitPrompt(story, c) {
-  return `${styleLine(story)}\nA half-length character portrait of ${c.name}, ${c.role}. ${c.look} Expression shows: ${c.personality} Plain softly lit background in the story's palette.\n${GUARD}`;
+  return `${styleLine(story)}\nA three-quarter-length figure of ${c.name}, ${c.role}, standing centred and facing the viewer, as a character in a visual novel. ${c.look} Expression shows: ${c.personality} Plain dark, softly lit background in the story's palette, empty around the figure.\n${GUARD}`;
 }
 
 export function momentPrompt(story, turn) {
@@ -71,17 +71,31 @@ const running = new Set();
  * Draw anything a story is still missing: places without a photo, and cast portraits.
  * Runs once per story at a time, one image after another, and announces each as it lands.
  */
+/** Paint one place or portrait now (used to have the opening room ready before you step in). */
+export async function paintNow(story, kind) {
+  const m = kind.match(/^(place|portrait)(\d+)$/);
+  if (!m || (await getAsset(story.id, kind))) return;
+  const i = Number(m[2]);
+  const blob = m[1] === 'place' ? await generateImage(placePrompt(story, i), 'landscape') : await generateImage(portraitPrompt(story, story.bible.cast[i]), 'portrait');
+  await putAsset(story.id, kind, blob);
+}
+
 export async function ensureStoryArt(story) {
   if (imagesOff || running.has(story.id)) return;
   running.add(story.id);
   try {
-    const jobs = [];
-    for (let i = 0; i < story.bible.places.length; i++) {
-      if (!(await getAsset(story.id, `place${i}`))) jobs.push({ kind: `place${i}`, prompt: placePrompt(story, i), shape: 'landscape' });
+    // the room you're standing in and the people in it come first; the rest of the world after
+    const here = story.scene || 0;
+    const placeOrder = [here, ...story.bible.places.map((_, i) => i).filter((i) => i !== here)];
+    const placeJobs = [];
+    for (const i of placeOrder) {
+      if (!(await getAsset(story.id, `place${i}`))) placeJobs.push({ kind: `place${i}`, prompt: placePrompt(story, i), shape: 'landscape' });
     }
+    const castJobs = [];
     for (let k = 0; k < story.bible.cast.length; k++) {
-      if (!(await getAsset(story.id, `portrait${k}`))) jobs.push({ kind: `portrait${k}`, prompt: portraitPrompt(story, story.bible.cast[k]), shape: 'portrait' });
+      if (!(await getAsset(story.id, `portrait${k}`))) castJobs.push({ kind: `portrait${k}`, prompt: portraitPrompt(story, story.bible.cast[k]), shape: 'portrait' });
     }
+    const jobs = [...placeJobs.slice(0, 1), ...castJobs, ...placeJobs.slice(1)];
     for (const job of jobs) {
       try {
         const blob = await generateImage(job.prompt, job.shape);

@@ -20,6 +20,7 @@ const MODEL = 'claude-opus-5-5';
 const FALLBACK = { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' };
 const MOODS = ['nostalgic', 'weightless', 'bittersweet', 'electric', 'quietlyHappy'];
 const RECORD_SEPARATOR = '\u001e';
+const SOUNDS = ['fireplace', 'rain', 'wind', 'water', 'crowd', 'quiet'];
 
 let client;
 const anthropic = () => (client ??= new Anthropic());
@@ -63,16 +64,25 @@ export default async function handler(req, res) {
 
 const NARRATOR = `You are the narrator of an interactive story in Reve AI. The players chose this world and live inside it; your job is to make it feel alive, consistent and consequential, so that it is worth returning to for months.
 
-Craft:
-- Write in the second person for the player whose turn it is ("you"); refer to other players by name. Present tense, vivid and specific, never purple. Usually 120–260 words per turn.
-- Let the cast act on their own goals and opinions. They remember what happened (the ledger is canon), hold grudges and gratitude, keep and break promises, and talk to each other off-page.
-- Honour consequences. Earlier choices should visibly echo later: a lie resurfaces, a kindness is repaid, a closed door stays closed. Never reset or quietly forget.
-- Never decide a player's inner feelings, words or major actions beyond what they wrote. Players who have not joined yet are played by you, true to their description, but you never make big irreversible choices on their behalf.
-- End each turn at a moment that invites a decision. Leave room; don't resolve everything.
+How a scene is written (the app shows it one beat at a time, like a visual novel):
+- Write the scene as a sequence of short beats, separated by a blank line. Each beat is EITHER
+  - narration: 1-2 sentences in the second person, present tense, about what you see, hear, smell or feel; or
+  - one line of dialogue, written exactly as  Name: what they say  (the character's name as in the cast, a colon, then the words, with no quotation marks and no "she says").
+- Never mix dialogue into a narration beat. Never write lines for the player characters: they speak through their own choices.
+- 4-8 beats per turn. Vivid and specific, never purple. Plain text: no headings, no lists, no markdown except *italics*.
+
+Continuity (this matters most):
+- Pick up exactly where the last beat ended. The first beat shows the immediate result of what the player just did or said.
+- Stay in the current place, with the characters already present, unless the player moves or someone visibly arrives.
+- Characters answer what was actually said to them, in their own voice, acting on their own wants. They remember the ledger; never reset or forget.
+- One scene, one tension. Follow the thread already in play. Introduce at most one new name, place or mystery in a turn, and only when the scene needs it.
+- Never decide a player's feelings, words or big actions beyond what they chose. Players who have not joined yet are played by you, true to their description, without big irreversible choices.
+- End on a beat that invites the player to respond: usually a character's line, often a question to you.
+- The 3 suggested choices are things the player could say or do in direct response to that last beat: distinct in spirit (e.g. warm, bold, guarded), each under 10 words, written as the player's own line or action.
 - Keep the world's facts consistent with the bible and the ledger.
 
 Boundaries:
-- Create original settings and characters. If a premise names a famous book, film or game world, build an original world in the same genre and spirit, with your own names, places and lore; do not reproduce or continue copyrighted stories or characters.
+- Create original characters and stories. If a premise names a famous book, film or game place, give the player that kind of place, faithfully in feel (its architecture, light, sounds and mood), but under your own original name, with your own original characters and lore; do not reproduce or continue copyrighted stories or characters.
 - Mature themes (danger, grief, romance, rivalry) are welcome when the story calls for them; keep anything sexual off-page.
 - If a player seems to be in real distress or danger outside the story, step gently out of the fiction to care for them directly and suggest reaching out to someone they trust or to local support.`;
 
@@ -86,7 +96,8 @@ const Bible = z.object({
     name: z.string(),
     description: z.string().describe('2 sensory sentences'),
     photo_index: z.number().int().describe('Index of the photo this place is painted from, or -1'),
-  })).describe('4-6 places; every provided photo becomes exactly one place'),
+    sounds: z.array(z.enum(SOUNDS)).describe('1-2 ambient sounds you hear in this place'),
+  })).describe('3-5 places; the first one is where the story opens. Every provided photo becomes exactly one place'),
   cast: z.array(z.object({
     name: z.string(),
     role: z.string().describe('Under 8 words'),
@@ -97,7 +108,7 @@ const Bible = z.object({
     secret: z.string(),
     bond: z.string().describe('How they relate to the players at the start, under 18 words'),
     voice_tone: z.enum(['low', 'medium', 'high']).describe('Where their speaking voice sits, used for read-aloud'),
-  })).describe('3-5 non-player characters with their own goals'),
+  })).describe('2-4 non-player characters with their own goals; the first one is the person in the opening scene'),
   threads: z.array(z.string()).describe('3 open storylines, each under 14 words'),
   protagonist: z.object({
     name: z.string(),
@@ -109,9 +120,9 @@ const Bible = z.object({
   opening: z.object({
     chapter_title: z.string(),
     time: z.string().describe('In-world time, e.g. "Spring 1926 — a Tuesday, near midnight"'),
-    narration: z.string().describe('The opening scene, 180-280 words, addressed to the first player as "you"'),
-    scene: z.number().int().describe('Index of the place where the story opens'),
-    choices: z.array(z.string()).describe('3 short suggested moves for the first player, under 12 words each'),
+    narration: z.string().describe('The opening scene as 5-8 beats in the scene format (blank line between beats; dialogue as "Name: words"). Open inside the place: first what you see, hear and smell; then the first cast member, already in the room, notices you; end on their line to you'),
+    scene: z.number().int().describe('Index of the place where the story opens (normally 0)'),
+    choices: z.array(z.string()).describe('3 suggested replies to the last line, under 10 words each'),
   }),
 });
 
@@ -141,7 +152,7 @@ async function begin({ premise, players = [], photos = [] }) {
     model: MODEL,
     max_tokens: 16000,
     output_config: { effort: 'medium', format: zodOutputFormat(Bible) },
-    system: `${NARRATOR}\n\nRight now you are setting up a brand-new story: its world, its places, its cast, its open threads and its opening scene. Write in the language of the premise.`,
+    system: `${NARRATOR}\n\nRight now you are setting up a brand-new story: its world, its places, its cast, its open threads and its opening scene. The opening drops the player straight into a moment. If the premise names a place (\"a common room under the lake\", \"a night market in Seoul\"), the story opens IN that place, at a specific hour, with one person there. Keep the setup small and coherent: few names, one clear tension to start. Write in the language of the premise.`,
     messages: [{
       role: 'user',
       content: [
@@ -162,7 +173,7 @@ async function begin({ premise, players = [], photos = [] }) {
 const Record = z.object({
   scene: z.number().int().describe('Index of the place the scene is now in'),
   time: z.string().describe('In-world time after this turn'),
-  choices: z.array(z.string()).describe('3 short suggested next moves for Player 1, under 12 words each'),
+  choices: z.array(z.string()).describe('3 suggested replies or moves for Player 1, responding to the last beat, under 10 words each'),
   consequences: z.array(z.object({
     text: z.string().describe('Under 14 words, e.g. "Léa will remember you lied about the gallery"'),
     kind: z.enum(['relationship', 'promise', 'secret', 'item', 'place', 'thread', 'reputation']),
@@ -292,7 +303,7 @@ async function turn(res, { story, actions }) {
     tool_choice: { type: 'auto' },
     messages: [
       ...recentRounds(story),
-      { role: 'user', content: `${act}\n\nNarrate what happens next. Then call record_turn exactly once.` },
+      { role: 'user', content: `${act}\n\nContinue the scene from exactly this moment, as beats. Then call record_turn exactly once.` },
     ],
   });
 

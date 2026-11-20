@@ -55,6 +55,16 @@ const PRESETS = {
   },
 };
 
+/** Sounds of a place, layered over the feeling's music (see api/story.js → SOUNDS). */
+const PLACE_SOUNDS = {
+  fireplace: { crackle: 0.9 },
+  rain: { rain: 0.12 },
+  wind: { wind: 0.07 },
+  water: { water: 0.11 },
+  crowd: { crowd: 0.05 },
+  quiet: { pad: 0.1, chime: 0.12 },
+};
+
 const CHORD_SECONDS = 13;
 const rand = (a, b) => a + Math.random() * (b - a);
 const semi = (root, s) => root * Math.pow(2, s / 12);
@@ -88,10 +98,11 @@ function makeImpulse(ctx, seconds, decay) {
 }
 
 class Scene {
-  constructor(engine, moodKey) {
+  constructor(engine, moodKey, sounds = []) {
     this.engine = engine;
     this.mood = moodKey;
-    this.p = PRESETS[moodKey] || PRESETS.nostalgic;
+    this.key = `${moodKey}|${sounds.join(',')}`;
+    this.p = Object.assign({}, PRESETS[moodKey] || PRESETS.nostalgic, ...sounds.map((k) => PLACE_SOUNDS[k] || {}));
     this.ctx = engine.ctx;
     this.timers = new Set();
     this.sources = new Set();
@@ -142,6 +153,10 @@ class Scene {
     if (p.rain) this.noiseLayer({ type: 'highpass', freq: 900, q: 0.5 }, { type: 'lowpass', freq: 7500 }, p.rain);
     if (p.rain) this.noiseLayer({ type: 'bandpass', freq: 3200, q: 1.2 }, null, p.rain * 0.5, 0.3);
     if (p.wind) this.noiseLayer({ type: 'bandpass', freq: 420, q: 0.8 }, null, p.wind, 0.07, 260);
+    // lapping water / a lake overhead: deep, slowly breathing rumble
+    if (p.water) this.noiseLayer({ type: 'lowpass', freq: 380, q: 0.9 }, null, p.water, 0.11);
+    // a room full of people, far off: a murmur in the voice band
+    if (p.crowd) this.noiseLayer({ type: 'bandpass', freq: 650, q: 2.2 }, { type: 'lowpass', freq: 1400 }, p.crowd, 0.35);
 
     this.chordIndex = 0;
     this.playChord();
@@ -315,12 +330,12 @@ class AmbientEngine {
     return true;
   }
 
-  /** Must first be called from a user gesture (browser autoplay rules). */
-  play(moodKey) {
+  /** Must first be called from a user gesture (browser autoplay rules). `sounds` are the place's layers. */
+  play(moodKey, sounds = []) {
     if (!this.ensure()) return;
-    if (this.scene?.alive && this.scene.mood === moodKey) return;
+    if (this.scene?.alive && this.scene.key === `${moodKey}|${sounds.join(',')}`) return;
     this.scene?.stop();
-    this.scene = new Scene(this, moodKey);
+    this.scene = new Scene(this, moodKey, sounds);
   }
 
   stop() {

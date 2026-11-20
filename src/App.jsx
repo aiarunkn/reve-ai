@@ -13,7 +13,7 @@ import { loadWorlds, saveWorlds, newMemory, saveScene, deleteWorldAssets } from 
 import { dreamWorld, sleepingBible, NotConfiguredError } from './services/reveClient';
 import { loadStoryIndex, saveStory, deleteStory, savePlaceImage, storyFromBible } from './services/storyStore';
 import { beginStory } from './services/storyClient';
-import { STARTER_BIBLE, STARTER_PLAYERS, STARTER_PREMISE } from './data/starterStory';
+import { paintNow, ImagesNotConfigured } from './services/storyArt';
 import { paintPanorama, startAIPanorama, waitForAIPanorama } from './services/panoramaService';
 import { putAsset, deleteAssets, emitAsset } from './services/assetStore';
 import { useHashRoute } from './hooks/useHashRoute';
@@ -95,18 +95,6 @@ export default function App() {
       return next;
     });
   }, []);
-
-  // first visit: a ready-to-play starter world waits on the main page (no forms, no waiting)
-  useEffect(() => {
-    let onboarded = false;
-    try { onboarded = localStorage.getItem('reve-ai:onboarded') === '1'; } catch { /* private mode */ }
-    if (onboarded || loadStoryIndex().length) return;
-    try { localStorage.setItem('reve-ai:onboarded', '1'); } catch { /* private mode */ }
-    const id = newId('story');
-    saveStory(storyFromBible(id, { premise: STARTER_PREMISE, players: STARTER_PLAYERS, bible: structuredClone(STARTER_BIBLE) })).then(() => {
-      setStories(loadStoryIndex());
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateWorld = useCallback((id, fn) => {
     setWorlds((list) => {
@@ -242,7 +230,16 @@ export default function App() {
         if (pi >= 0 && files[pi]) await savePlaceImage(id, i, await generateMemoryImage(files[pi], bible.mood));
       }
       const cast = players.length ? players : [{ id: 'p1', ...bible.protagonist, joined: true, local: true }];
-      await saveStory(storyFromBible(id, { premise, players: cast, bible }));
+      const story = storyFromBible(id, { premise, players: cast, bible });
+      // paint the room you open in, and the person waiting there, before you step in (capped, so a slow painter never blocks you)
+      setWeaving((w) => ({ ...w, stage: 'room' }));
+      const firstPlace = story.scene;
+      const art = Promise.allSettled([
+        bible.places[firstPlace]?.photo_index >= 0 ? null : paintNow(story, `place${firstPlace}`),
+        bible.cast.length ? paintNow(story, 'portrait0') : null,
+      ]).then((r) => r.forEach((x) => x.status === 'rejected' && !(x.reason instanceof ImagesNotConfigured) && console.warn('[art]', x.reason)));
+      await Promise.race([art, wait(75000)]);
+      await saveStory(story);
       setStories(loadStoryIndex());
       mapScroll.current = 0;
       go({ view: 'story', id });
@@ -342,15 +339,9 @@ export default function App() {
             transition={{ duration: 0.8, ease: 'easeInOut' }}
           >
             <WorldMap
-              memories={memories}
-              worlds={worlds}
               stories={stories}
               onEnterStory={(id) => { mapScroll.current = window.scrollY; go({ view: 'story', id }); }}
               onBegin={(premise) => beginNewStory({ premise })}
-              onEnter={enterRoom}
-              onEnterWorld={(id) => { mapScroll.current = window.scrollY; go({ view: 'world', id }); }}
-              onPlant={() => setPlanting(true)}
-              onImagine={() => setImagining(true)}
               restoreScroll={mapScroll.current}
             />
           </motion.div>

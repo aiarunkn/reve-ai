@@ -6,13 +6,12 @@ live anywhere else, your decisions have lasting consequences, and the world reme
 **Insight:** people don’t just want to generate worlds; they want to live experiences they couldn’t otherwise have.
 
 ### Stories (the heart of the app)
-- **Ready to play**: on your first visit an original starter world, *Lanternfall Academy*, is waiting under
-  "Your stories" on the main page, with its opening already written. One click and you're in.
-- **One line to begin your own**: type the world you want to live in and press Enter; the narrator builds
-  the world and invents your character.
-- **Game-style screen**: the scene fills the screen, a dialogue box shows who's speaking, with three replies
-  (or write your own); a slim sidebar holds the world, sections and your character, and a side panel
-  shows who's with you and recent activity.
+- **One line to begin**: type where you want to be ("a candlelit common room under a lake, past midnight") and press
+  Enter. The narrator builds a small, coherent world and drops you into that exact place, with someone in the room.
+- **Played like a visual novel**: the place fills the screen, whoever you're talking to stands in it, and the scene
+  plays one line at a time (tap, Space or Enter to continue). At the end of each scene: three replies, or say
+  something else. The narrator writes in beats (`Name: line` for dialogue) and always picks up exactly where the last line ended.
+- **Sound**: the story's feeling plus the place itself (fireplace, rain, wind, water, a distant crowd), on by default.
 - **Begin with a premise**, e.g. *"1920s Paris: my best friend and I are rival artists."* Create your own character
   (name, look, what they want, a secret), optionally a friend who plays alongside you, and up to five photos that
   become real places.
