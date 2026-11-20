@@ -55,8 +55,15 @@ function useStoryCovers(stories) {
       g.addColorStop(0, m.bg[0]); g.addColorStop(0.6, m.secondary); g.addColorStop(1, m.bg[1]);
       x.fillStyle = g; x.fillRect(0, 0, 300, 400);
       x.fillStyle = m.primary; x.globalAlpha = 0.85;
-      x.font = 'italic 40px "Cormorant Garamond", serif'; x.textAlign = 'center';
-      x.fillText(s.title.split(' ').slice(0, 2).join(' '), 150, 220);
+      x.font = 'italic 34px "Cormorant Garamond", serif'; x.textAlign = 'center';
+      // wrap the title to fit inside the arch (about 200px wide), at most three lines
+      const lines = [];
+      for (const word of s.title.split(' ')) {
+        const tryLine = lines.length ? `${lines[lines.length - 1]} ${word}` : word;
+        if (lines.length && x.measureText(tryLine).width <= 190) lines[lines.length - 1] = tryLine;
+        else lines.push(word);
+      }
+      lines.slice(0, 3).forEach((l, i, all) => x.fillText(l, 150, 215 + (i - (all.length - 1) / 2) * 40));
       return [s.id, c.toDataURL('image/jpeg', 0.8)];
     })).then((pairs) => alive && setCovers(Object.fromEntries(pairs)));
     return () => { alive = false; made.forEach((u) => URL.revokeObjectURL(u)); };

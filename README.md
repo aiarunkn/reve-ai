@@ -6,8 +6,8 @@ live anywhere else, your decisions have lasting consequences, and the world reme
 **Insight:** people don’t just want to generate worlds; they want to live experiences they couldn’t otherwise have.
 
 ### Stories (the heart of the app)
-- **Start instantly**: on your first visit you land straight inside an original starter world,
-  *Lanternfall Academy*, with its opening already written, so no forms and no waiting.
+- **Ready to play**: on your first visit an original starter world, *Lanternfall Academy*, is waiting under
+  "Your stories" on the main page, with its opening already written. One click and you're in.
 - **One line to begin your own**: type the world you want to live in and press Enter; the narrator builds
   the world and invents your character.
 - **Game-style screen**: the scene fills the screen, a dialogue box shows who's speaking, with three replies

@@ -96,16 +96,15 @@ export default function App() {
     });
   }, []);
 
-  // first visit: no forms, no waiting — land straight inside a world
+  // first visit: a ready-to-play starter world waits on the main page (no forms, no waiting)
   useEffect(() => {
     let onboarded = false;
     try { onboarded = localStorage.getItem('reve-ai:onboarded') === '1'; } catch { /* private mode */ }
-    if (onboarded || route.view !== 'map' || loadStoryIndex().length) return;
+    if (onboarded || loadStoryIndex().length) return;
     try { localStorage.setItem('reve-ai:onboarded', '1'); } catch { /* private mode */ }
     const id = newId('story');
     saveStory(storyFromBible(id, { premise: STARTER_PREMISE, players: STARTER_PLAYERS, bible: structuredClone(STARTER_BIBLE) })).then(() => {
       setStories(loadStoryIndex());
-      go({ view: 'story', id }, { replace: true });
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
