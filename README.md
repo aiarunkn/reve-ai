@@ -1,20 +1,28 @@
 # Reve AI
 
-*Rêve* is French for "dream". Reve AI is a living visual diary of imagined worlds: you upload up to five of
-your own photos, describe a person or place you want to imagine, and it becomes a small world you belong to,
-with one inhabitant you can talk to.
+*Rêve* is French for "dream". Reve AI is a personal interactive universe: you live stories you couldn’t
+live anywhere else, your decisions have lasting consequences, and the world remembers you when you come back.
 
-**Hypothesis:** people don’t just want to consume fictional worlds; they want to belong to worlds they created.
+**Insight:** people don’t just want to generate worlds; they want to live experiences they couldn’t otherwise have.
 
-- **Illustrated scenes.** Each photo becomes a place in the world, painted in one consistent style.
-- **One character.** Claude writes a "world bible" from your photos and words: the world’s name, its places,
-  small truths about it, and one inhabitant with a personality, a voice, a longing and a secret.
-- **Conversations.** Talk with them (text). Replies stream in, and they move you between places as you talk.
-- **Persistent memory.** After conversations, the character reflects: they remember what you shared, the
-  relationship deepens (stranger → acquaintance → friend → confidant → kindred), and they change over time.
-  You can see and edit what they remember in the Memory tab.
-- **Stories.** Ask them to tell you a story set in your world; stories are kept to reread.
-- **Memory rooms** (the earlier part of the app): a single photo + feeling + letter, which you can step inside in 3D.
+### Stories (the heart of the app)
+- **Begin with a premise**, e.g. *"1920s Paris: my best friend and I are rival artists."* Create your own character
+  (name, look, what they want, a secret), optionally a friend who plays alongside you, and up to five photos that
+  become real places.
+- **The narrator casts the world**: setting, places, 3–5 characters with their own goals and secrets, open threads,
+  and chapter one.
+- **Play**: write what you do, or pick one of three suggested moves. Narration streams in like a book.
+- **Lasting consequences**: every turn records consequences ("Théo knows you tried to destroy your best work"),
+  relationship changes, canon facts and opened/closed threads into a ledger the narrator always reads.
+- **Come back weeks later**: a "Previously…" recap, and the world has moved on a little while you were away.
+- **Journal**: the cast and where you stand with each of them, open threads, your choices next to their
+  consequences, places, and players.
+- **Built for multiplayer**: every turn is a round with one action per player. Until a friend joins, the
+  narrator plays their character true to your description. Real invites need a shared database (next step).
+
+### Also in Reve
+- **Worlds**: photos and a description become a place with one character you talk to, who remembers you.
+- **Memory rooms**: a photo, a feeling and a letter to your future self, which you can step inside in 3D.
 
 ```bash
 npm install
@@ -48,8 +56,8 @@ api/panorama.js              Vercel serverless function → Blockade Labs (keeps
 
 ## Waking up the characters (Anthropic API key)
 
-Worlds are created and characters talk through `api/reve.js`, a Vercel serverless function that calls
-Claude (`claude-opus-5-5`) with the official Anthropic SDK. The key stays on the server.
+Stories run through `api/story.js` (the narrator) and worlds through `api/reve.js`: Vercel serverless functions
+that call Claude (`claude-opus-5-5`) with the official Anthropic SDK. The key stays on the server.
 
 1. Create a key at **console.anthropic.com** → API Keys (pay-as-you-go).
 2. **On Vercel:** Project → Settings → Environment Variables → `ANTHROPIC_API_KEY`, then redeploy.

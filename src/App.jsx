@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import WorldMap from './components/WorldMap';
 import PlantSeedModal from './components/PlantSeedModal';
 import CreateWorldModal from './components/CreateWorldModal';
+import CreateStoryModal from './components/CreateStoryModal';
 import WeavingOverlay from './components/WeavingOverlay';
 import { SEED_MEMORIES } from './data/seedMemories';
 import { loadMemories, saveMemories } from './services/storage';
@@ -11,6 +12,8 @@ import { ambient } from './services/ambientAudio';
 import { estimateDepth, drawFit, loadImage } from './services/depthEstimator';
 import { loadWorlds, saveWorlds, newMemory, saveScene, deleteWorldAssets } from './services/worldStore';
 import { dreamWorld, sleepingBible, NotConfiguredError } from './services/reveClient';
+import { loadStoryIndex, saveStory, deleteStory, savePlaceImage, storyFromBible } from './services/storyStore';
+import { beginStory } from './services/storyClient';
 import { paintPanorama, startAIPanorama, waitForAIPanorama } from './services/panoramaService';
 import { putAsset, deleteAssets, emitAsset } from './services/assetStore';
 import { useHashRoute } from './hooks/useHashRoute';
@@ -18,6 +21,7 @@ import { useHashRoute } from './hooks/useHashRoute';
 // the 3D room (three.js) only downloads when you first step inside a memory
 const MemoryRoom = lazy(() => import('./components/MemoryRoom'));
 const WorldView = lazy(() => import('./components/WorldView'));
+const StoryView = lazy(() => import('./components/StoryView'));
 
 const WEAVE_MIN_MS = 2000;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -56,6 +60,8 @@ export default function App() {
   const [planting, setPlanting] = useState(false);
   const [imagining, setImagining] = useState(false);
   const [worlds, setWorlds] = useState(loadWorlds);
+  const [stories, setStories] = useState(loadStoryIndex);
+  const [beginning, setBeginning] = useState(false);
   const [weaving, setWeaving] = useState(null); // { mood, preview, stage, progress }
   const [soundOn, setSoundOn] = useState(false);
   const [toast, setToast] = useState('');
@@ -64,11 +70,12 @@ export default function App() {
   const roomIndex = route.view === 'room' ? memories.findIndex((m) => m.id === route.id) : -1;
   const room = roomIndex >= 0 ? memories[roomIndex] : null;
   const world = route.view === 'world' ? worlds.find((w) => w.id === route.id) || null : null;
+  const storyEntry = route.view === 'story' ? stories.find((s) => s.id === route.id) || null : null;
 
   // unknown room or world id in the URL → back to the map
   useEffect(() => {
-    if ((route.view === 'room' && !room) || (route.view === 'world' && !world)) go({ view: 'map' }, { replace: true });
-  }, [route, room, world, go]);
+    if ((route.view === 'room' && !room) || (route.view === 'world' && !world) || (route.view === 'story' && !storyEntry)) go({ view: 'map' }, { replace: true });
+  }, [route, room, world, storyEntry, go]);
 
   // soundscape follows the room you're in
   useEffect(() => {
@@ -206,6 +213,47 @@ export default function App() {
     }
   };
 
+  // a premise + who you are (+ a friend) + optional photos -> the narrator's bible -> painted places -> chapter one
+  const beginNewStory = async ({ premise, players, files }) => {
+    const preview = files[0] ? URL.createObjectURL(files[0]) : null;
+    const id = newId('story');
+    setBeginning(false);
+    setWeaving({ mood: 'nostalgic', preview, stage: 'cast' });
+    try {
+      const photos = await Promise.all(files.map(photoForAI));
+      const [bible] = await Promise.all([beginStory({ premise, players, photos }), wait(WEAVE_MIN_MS)]);
+      // every photo becomes exactly one place
+      files.forEach((_, i) => {
+        if (!bible.places.some((p) => p.photo_index === i)) bible.places.push({ name: `Place ${bible.places.length + 1}`, description: '', photo_index: i });
+      });
+      setWeaving((w) => ({ ...w, mood: bible.mood, stage: 'places' }));
+      for (let i = 0; i < bible.places.length; i++) {
+        const pi = bible.places[i].photo_index;
+        if (pi >= 0 && files[pi]) await savePlaceImage(id, i, await generateMemoryImage(files[pi], bible.mood));
+      }
+      await saveStory(storyFromBible(id, { premise, players, bible }));
+      setStories(loadStoryIndex());
+      mapScroll.current = 0;
+      go({ view: 'story', id });
+    } catch (err) {
+      console.error(err);
+      setToast(err instanceof NotConfiguredError
+        ? 'Stories need a narrator: add ANTHROPIC_API_KEY on the server (Vercel → Settings → Environment Variables), then redeploy.'
+        : err?.message || 'Something went wrong while beginning that story.');
+    } finally {
+      setWeaving(null);
+      if (preview) URL.revokeObjectURL(preview);
+    }
+  };
+
+  const removeStory = async () => {
+    if (!storyEntry) return;
+    if (!window.confirm(`Close “${storyEntry.title}” forever? Every chapter, choice and place will be gone.`)) return;
+    await deleteStory(storyEntry.id);
+    setStories(loadStoryIndex());
+    go({ view: 'map' }, { replace: true });
+  };
+
   const deleteWorld = () => {
     if (!world) return;
     if (!window.confirm(`Let “${world.bible.world_name}” fade away? Its scenes, conversations and stories will be gone for good.`)) return;
@@ -231,7 +279,13 @@ export default function App() {
   return (
     <>
       <AnimatePresence mode="wait">
-        {world ? (
+        {storyEntry ? (
+          <motion.div key={storyEntry.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, filter: 'blur(10px)' }} transition={{ duration: 0.8 }} className="fixed inset-0">
+            <Suspense fallback={<div className="fixed inset-0 bg-midnight" />}>
+              <StoryView storyId={storyEntry.id} onExit={() => { setStories(loadStoryIndex()); exit(); }} onDelete={removeStory} notify={setToast} />
+            </Suspense>
+          </motion.div>
+        ) : world ? (
           <motion.div
             key={world.id}
             initial={{ opacity: 0 }}
@@ -279,6 +333,9 @@ export default function App() {
             <WorldMap
               memories={memories}
               worlds={worlds}
+              stories={stories}
+              onEnterStory={(id) => { mapScroll.current = window.scrollY; go({ view: 'story', id }); }}
+              onBegin={() => setBeginning(true)}
               onEnter={enterRoom}
               onEnterWorld={(id) => { mapScroll.current = window.scrollY; go({ view: 'world', id }); }}
               onPlant={() => setPlanting(true)}
@@ -291,6 +348,7 @@ export default function App() {
 
       <PlantSeedModal open={planting} onClose={() => setPlanting(false)} onSubmit={plant} />
       <CreateWorldModal open={imagining} onClose={() => setImagining(false)} onSubmit={imagine} />
+      <CreateStoryModal open={beginning} onClose={() => setBeginning(false)} onSubmit={beginNewStory} />
       <WeavingOverlay moodKey={weaving?.mood} preview={weaving?.preview} stage={weaving?.stage} progress={weaving?.progress} />
 
       <AnimatePresence>

@@ -9,6 +9,8 @@ const STAGES = {
   'depth-think': 'Feeling out the shape of this place...',
   world: 'Painting the world around it...',
   dream: 'Dreaming up your world...',
+  cast: 'Casting your story...',
+  places: 'Building the places...',
   scenes: 'Painting your scenes...',
 };
 

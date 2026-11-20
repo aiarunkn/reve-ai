@@ -5,9 +5,10 @@ import { useCallback, useEffect, useState } from 'react';
  *   #/               world map
  *   #/room/<id>      a memory room
  *   #/world/<id>     an imagined world
+ *   #/story/<id>     an interactive story
  */
 function parse() {
-  const m = window.location.hash.match(/^#\/(room|world)\/(.+)$/);
+  const m = window.location.hash.match(/^#\/(room|world|story)\/(.+)$/);
   return m ? { view: m[1], id: decodeURIComponent(m[2]) } : { view: 'map' };
 }
 

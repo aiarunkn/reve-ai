@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Sprout, Plus, Sparkles } from 'lucide-react';
+import { Sprout, Plus, Sparkles, Feather } from 'lucide-react';
 import { loadScenes } from '../services/worldStore';
+import { loadPlaceImages } from '../services/storyStore';
+import { getMood } from '../data/moods';
 import Landscape from './Landscape';
 import ParticleCanvas from './ParticleCanvas';
 import MemoryPortal from './MemoryPortal';
@@ -29,6 +31,34 @@ function useWorldCovers(worlds) {
       pairs.forEach(([, u]) => u && made.push(u));
       if (alive) setCovers(Object.fromEntries(pairs));
     });
+    return () => { alive = false; made.forEach((u) => URL.revokeObjectURL(u)); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return covers;
+}
+
+/** First painted place of each story, or a gradient card in the story's colours. */
+function useStoryCovers(stories) {
+  const [covers, setCovers] = useState({});
+  const key = stories.map((s) => s.id).join(',');
+  useEffect(() => {
+    let alive = true;
+    const made = [];
+    Promise.all(stories.map(async (s) => {
+      const [img] = await loadPlaceImages(s.id, 1);
+      if (img) { made.push(img); return [s.id, img]; }
+      const m = getMood(s.mood);
+      const c = document.createElement('canvas');
+      c.width = 300; c.height = 400;
+      const x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 0, 400);
+      g.addColorStop(0, m.bg[0]); g.addColorStop(0.6, m.secondary); g.addColorStop(1, m.bg[1]);
+      x.fillStyle = g; x.fillRect(0, 0, 300, 400);
+      x.fillStyle = m.primary; x.globalAlpha = 0.85;
+      x.font = 'italic 40px "Cormorant Garamond", serif'; x.textAlign = 'center';
+      x.fillText(s.title.split(' ').slice(0, 2).join(' '), 150, 220);
+      return [s.id, c.toDataURL('image/jpeg', 0.8)];
+    })).then((pairs) => alive && setCovers(Object.fromEntries(pairs)));
     return () => { alive = false; made.forEach((u) => URL.revokeObjectURL(u)); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
@@ -66,11 +96,13 @@ function EmptyIsland({ onClick, label, icon: Icon, index }) {
   );
 }
 
-export default function WorldMap({ memories, worlds = [], onEnter, onEnterWorld, onPlant, onImagine, restoreScroll }) {
+export default function WorldMap({ memories, worlds = [], stories = [], onEnter, onEnterWorld, onEnterStory, onPlant, onImagine, onBegin, restoreScroll }) {
   useEffect(() => {
     if (restoreScroll) window.scrollTo(0, restoreScroll);
   }, [restoreScroll]);
   const covers = useWorldCovers(worlds);
+  const storyCovers = useStoryCovers(stories);
+  const storyPortals = [...stories].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).map((s) => ({ id: s.id, title: s.title, mood: s.mood, createdAt: s.updatedAt || s.createdAt, image: storyCovers[s.id] || null }));
   const worldPortals = worlds.map((w) => ({ id: w.id, title: w.bible.world_name, mood: w.bible.mood, createdAt: w.createdAt, image: covers[w.id] || null }));
 
   return (
@@ -92,24 +124,39 @@ export default function WorldMap({ memories, worlds = [], onEnter, onEnterWorld,
             Reve AI
           </h1>
           <p className="mt-5 max-w-md font-serif text-lg italic text-parchment/65 sm:text-xl">
-            Turn your own photos into a world you belong to, and meet the one who lives there.
+            Live the stories you can’t live anywhere else. Your choices last, and the world remembers you.
           </p>
-          <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
+          <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
             <motion.button
               type="button"
-              onClick={onImagine}
+              onClick={onBegin}
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
               className="btn-lantern inline-flex items-center gap-2.5 rounded-full px-7 py-3.5 text-sm font-medium tracking-wide"
             >
-              <Sparkles size={18} strokeWidth={2} />
-              Imagine a World
+              <Feather size={18} strokeWidth={2} />
+              Begin a Story
             </motion.button>
+            <button type="button" onClick={onImagine} className="glass-btn inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm text-parchment/80 hover:text-parchment">
+              <Sparkles size={16} /> Imagine a World
+            </button>
             <button type="button" onClick={onPlant} className="glass-btn inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm text-parchment/80 hover:text-parchment">
               <Plus size={16} /> Plant a Memory Seed
             </button>
           </div>
         </motion.header>
+
+        <SectionTitle sub={stories.length ? 'Pick up exactly where you left off.' : 'Describe an experience you want to live. Your decisions change what happens next.'}>
+          Your stories
+        </SectionTitle>
+        <section aria-label="Your stories" className="mt-14 grid grid-cols-1 justify-items-center gap-x-10 gap-y-20 sm:grid-cols-2 lg:grid-cols-3 lg:gap-y-28">
+          {storyPortals.map((s, i) => (
+            <div key={s.id} className={OFFSETS[i % OFFSETS.length]}>
+              <MemoryPortal memory={s} index={i} onEnter={() => onEnterStory(s.id)} />
+            </div>
+          ))}
+          <EmptyIsland onClick={onBegin} label={stories.length ? 'begin another story' : 'begin your first story'} icon={Feather} index={stories.length} />
+        </section>
 
         <SectionTitle sub={worlds.length ? 'Places built from your photos, each with someone waiting in it.' : 'Five photos and a few words become a place, and someone who lives there.'}>
           Your worlds
