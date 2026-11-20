@@ -43,6 +43,7 @@ create table if not exists turns (
   created_at  timestamptz not null default now()
 );
 create index if not exists turns_world on turns(world_code, id);
+create index if not exists turns_player on turns(player_id);
 
 alter table worlds  enable row level security;
 alter table players enable row level security;
