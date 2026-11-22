@@ -18,7 +18,12 @@
  * Voices: the app speaks with the browser's built-in voices today. To upgrade, implement
  * `voice()` below with a voice provider and set VITE_VOICE_PROVIDER=server in the client.
  * (OpenAI's /v1/audio/speech models shut down on 2027-01-06, so they aren't used here.)
+ *
+ * "image" and "voice" are rate-limited per caller (see ./_limits.js); "photo" (free stock photo
+ * libraries, not an AI call) is not.
  */
+import { enforce } from './_limits.js';
+
 const SIZES = { landscape: '1536x1024', portrait: '1024x1536', square: '1024x1024' };
 
 export default async function handler(req, res) {
@@ -34,8 +39,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    if (body.action === 'image') return send(res, 200, await image(body));
-    if (body.action === 'voice') return voice(res, body);
+    if (body.action === 'image') {
+      const { ok, status, body: limitBody } = await enforce(req, 'image');
+      if (!ok) return send(res, status, limitBody);
+      return send(res, 200, await image(body));
+    }
+    if (body.action === 'voice') {
+      const { ok, status, body: limitBody } = await enforce(req, 'voice');
+      if (!ok) return send(res, status, limitBody);
+      return voice(res, body);
+    }
     if (body.action === 'photo') {
       const found = await photo(body);
       return found ? send(res, 200, found) : send(res, 404, { error: 'No photo found.' });

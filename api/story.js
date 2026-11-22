@@ -14,11 +14,13 @@
  * Built for several players from the start: a round carries one action per player.
  * Players who haven't joined yet are played by the narrator, true to their description.
  * Needs ANTHROPIC_API_KEY on the server; without it every call answers 501.
+ * Every action is rate-limited per caller (see ./_limits.js) before it ever reaches Claude.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { sharedConfigured, loadAs, narratorView, insertTurn } from './_db.js';
+import { enforce } from './_limits.js';
 
 const MODEL = 'claude-opus-5-5';
 // If a reply is ever declined by a safety classifier, the API retries it on a fallback model.
@@ -47,10 +49,26 @@ export default async function handler(req, res) {
 
   try {
     switch (body.action) {
-      case 'begin': return send(res, 200, await begin(body));
-      case 'turn': return await turn(res, body);
-      case 'return': return send(res, 200, await welcomeBack(body));
-      case 'summarize': return send(res, 200, await summarize(body));
+      case 'begin': {
+        const { ok, status, body: limitBody } = await enforce(req, 'world');
+        if (!ok) return send(res, status, limitBody);
+        return send(res, 200, await begin(body));
+      }
+      case 'turn': {
+        const { identity, ok, status, body: limitBody } = await enforce(req, 'turn');
+        if (!ok) return send(res, status, limitBody);
+        return await turn(res, body, identity);
+      }
+      case 'return': {
+        const { ok, status, body: limitBody } = await enforce(req, 'recap');
+        if (!ok) return send(res, status, limitBody);
+        return send(res, 200, await welcomeBack(body));
+      }
+      case 'summarize': {
+        const { ok, status, body: limitBody } = await enforce(req, 'recap');
+        if (!ok) return send(res, status, limitBody);
+        return send(res, 200, await summarize(body));
+      }
       default: return send(res, 400, { error: 'Unknown action' });
     }
   } catch (err) {
@@ -304,12 +322,12 @@ function recentRounds(story) {
   return out;
 }
 
-async function turn(res, body) {
+async function turn(res, body, identity) {
   let { story, actions } = body;
   let shared = null;
   if (body.shared) {
     if (!sharedConfigured()) throw httpError(503, 'Shared worlds need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the server.');
-    shared = await loadAs(body.shared);
+    shared = await loadAs({ ...body.shared, userId: identity?.userId });
     story = narratorView(shared);
     // you can only ever act as yourself
     actions = (actions || []).slice(0, 1).map((a) => ({ player: shared.me.name, text: String(a?.text || '') }));
