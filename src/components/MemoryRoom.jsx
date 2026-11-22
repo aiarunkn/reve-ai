@@ -13,7 +13,6 @@ const canUseMotion = typeof window !== 'undefined' && 'DeviceOrientationEvent' i
 
 export default function MemoryRoom({ memory, index, total, onPrev, onNext, onExit, onDelete, soundOn, onToggleSound, panoPending }) {
   const mood = getMood(memory.mood);
-  const Icon = mood.icon;
   const weather = memory.weather || mood.particles;
   const { image, depth, pano, panoKind, progress } = useMemoryWorld(memory);
 
@@ -110,9 +109,6 @@ export default function MemoryRoom({ memory, index, total, onPrev, onNext, onExi
 
         <div className="flex flex-col items-center gap-1.5 pt-0.5 text-center">
           <p className="font-serif text-lg italic leading-none text-parchment text-glow sm:text-2xl">{memory.title}</p>
-          <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.22em]" style={{ color: mood.primary }}>
-            <Icon size={11} /> {mood.label} · {formatMemoryDate(memory.createdAt)}
-          </p>
         </div>
 
         <div className="flex items-center gap-1.5">
