@@ -60,13 +60,18 @@ src/
   services/assetStore.js     IndexedDB storage for depth maps and 360° worlds
   services/depthEstimator.js AI depth (runs in workers/depthWorker.js)
   services/panoramaService.js  painted 360° world + client for the AI world
+  services/authClient.js    one Supabase client for the app: session, magic-link sign-in, authHeaders()
   data/fragments.js          splits the message into fragments and hides them
   components/
     WorldMap.jsx, Landscape.jsx, MemoryPortal.jsx, Island.jsx
     PlantSeedModal.jsx, WeavingOverlay.jsx
+    SignInSheet.jsx, AccountMenu.jsx  login + rate limits (see below)
     MemoryRoom.jsx (the game HUD), ExploreScene.jsx (three.js world), ParticleCanvas.jsx
 api/panorama.js              Vercel serverless function → Blockade Labs (keeps the key secret)
-api/shared.js, api/_db.js    shared worlds (Supabase); supabase/schema.sql creates the tables
+api/shared.js, api/_db.js, api/_art.js   shared worlds + the shared picture cache (Supabase)
+api/_auth.js, api/_limits.js  who's calling (account or guest) and per-day rate limits
+supabase/schema.sql, supabase/migrations/  creates/updates the tables, functions and Storage bucket
+test/                        node --test, mocking @supabase/supabase-js and @anthropic-ai/sdk
 ```
 
 ## Waking up the characters (Anthropic API key)
@@ -84,8 +89,9 @@ retries it on a fallback model (`fallbacks: "default"`).
 
 **Cost:** world creation reads up to 5 photos once; each chat message sends the character sheet, their
 memory and recent conversation (cached between turns). To spend less, switch `MODEL` in `api/reve.js`
-to `claude-haiku-5-5`. Before sharing the site publicly, add rate limiting or a login: anyone with the
-URL could otherwise run up your bill.
+to `claude-haiku-5-5`. Stories (`api/story.js`) are rate-limited per account/guest device — see **Login +
+rate limits** below. Worlds (`api/reve.js`, the photo-and-description feature above) aren't yet: before
+sharing that feature's URL publicly, add rate limiting or put it behind a login too.
 
 ## Shared worlds (Supabase)
 
@@ -104,15 +110,80 @@ ripple into your scene through rumours, objects and moods.
 
 How it fits together:
 - `src/shared/worldState.js` — pure functions both sides use: the shared ledger fold, one player's view, codes.
-- `api/shared.js` — `peek` / `create` (open up a solo story) / `join` (the narrator writes your arrival) / `load`.
+- `api/shared.js` — `peek` / `create` (open up a solo story) / `join` (the narrator writes your arrival) / `load`
+  / `art` / `claimArt` / `putArt` (the shared picture cache, below).
 - `api/story.js` → `turn` with `{ shared }` — loads the world on the server, narrates, saves the turn.
 - `src/services/sharedClient.js` — identity per world (localStorage), live channel, invite links (`#/w/CODE`).
 - Only the server touches the tables (row level security is on with no policies). The browser's anon key
-  is used only for Realtime broadcast/presence on the `world:<CODE>` channel.
-- Each device paints its own copy of a world's pictures (cached locally).
+  is used only for Realtime broadcast/presence on the `world:<CODE>` channel, and for signing in (below).
+- A world's places and portraits are painted once for everyone, not once per device — see **Shared
+  picture cache** below.
 
-**Cost safety:** anyone with a code can play in that world and spend narrator credits. Add rate limiting
-or a login before sharing codes publicly.
+**Cost safety:** every call is rate-limited per signed-in account or per guest device — see **Login +
+rate limits** below.
+
+### Shared picture cache
+
+When three friends are in a world, each place and portrait is painted once, not three times.
+
+- A private Storage bucket `world-art` holds the files, at `w/<CODE>/<kind>.<ext>` (`place0…7`,
+  `portrait0…7`, `moment<turn>`, plus `credit<i>` — a place's photo credit, stored as JSON the same way).
+- A table `world_art` tracks one row per `(world, kind)`: `painting` | `ready` | `failed`, who claimed it,
+  and where its file lives. The Postgres function `claim_art()` makes claiming atomic: if nobody has
+  started that picture, you get the claim; if someone did less than 3 minutes ago, you're told to wait
+  (a claim older than that can be reclaimed, in case a tab was closed mid-paint); if it's already `ready`,
+  you get a short-lived signed URL straight away.
+- `src/services/storyArt.js`: before painting any kind in a shared world, a device checks its own
+  IndexedDB cache, then asks the server for the ready pictures (`art`), then tries to `claimArt`. If it
+  gets the claim, it paints exactly as a solo story would, uploads the result (`putArt`), and caches it
+  locally. If told to wait, it polls every 5s for up to 90s, then falls back to painting its own local-only
+  copy (without uploading) so nobody is stuck looking at a gradient forever.
+- Opening a solo story up to friends (`shareStory`) offers any pictures that device already painted to
+  the new shared cache, so friends don't repaint them.
+- Image generation only counts against the `image` rate limit for the device that actually paints —
+  downloading a cached picture is free.
+
+## Login + rate limits (Supabase Auth)
+
+One viral post shouldn't be able to drain the Anthropic/OpenAI credits, and every player should have an
+account that can be emailed and billed later. Reve uses **Supabase Auth with email magic links — no
+passwords.** Guests can still try everything, up to a small daily allowance; past that, the app opens a
+"Keep dreaming — sign in with your email" sheet.
+
+Setup (uses the same Supabase project as **Shared worlds** above):
+
+1. Supabase → **Authentication → URL Configuration**: set the **Site URL** to your deployed URL (e.g.
+   `https://reve-ai-2rim.vercel.app`), and add it (plus `http://localhost:5173` for local dev) to
+   **Redirect URLs**.
+2. **Before launch, set up a custom SMTP provider** (Authentication → Settings → SMTP), for example
+   [Resend](https://resend.com). Supabase's built-in email sender is heavily rate-limited and will not
+   hold up once real people start signing in.
+3. **Vercel** → Settings → Environment Variables → `RATE_LIMIT_SALT` = any long random string (server
+   only). It's hashed together with a guest's IP so the app can rate-limit guests without ever storing a
+   raw IP address.
+4. Optional overrides (server only, JSON):
+   - `RATE_LIMITS` — per-kind, per-day limits. Defaults: `turn` 150/15 (signed-in/guest), `world` 6/1,
+     `join` 10/2, `image` 60/10, `voice` 200/0, `recap` 40/5. Example:
+     `RATE_LIMITS={"turn":{"signedIn":300},"image":{"guest":5}}`
+   - `GLOBAL_DAILY_CAPS` — a per-kind ceiling across *everyone*, as a circuit breaker. Example:
+     `GLOBAL_DAILY_CAPS={"turn":20000}`.
+
+How it fits together:
+- `api/_auth.js` — `identify(req)`: a valid bearer token resolves to the signed-in account; anything
+  else (no token, or an invalid/expired one) is a guest, keyed by `sha256(ip + RATE_LIMIT_SALT)`. An
+  invalid token is never mistaken for someone else's account.
+- `api/_limits.js` — `enforce(req, kind)` checks and atomically consumes one unit of that day's quota
+  (via the `bump_usage()` Postgres function) *before* the matching Claude/OpenAI/Blockade call, in
+  `api/story.js`, `api/shared.js` and `api/media.js`. Over the limit → `429 { error, kind, limit,
+  signIn }`; `signIn` is true only for a guest (a signed-in caller is already signed in).
+- `src/services/authClient.js` — one Supabase client for the whole app (session persisted, reused by
+  Realtime too), `sendMagicLink(email)`, and `authHeaders()`, sent as `Authorization: Bearer <token>` on
+  every `/api` call.
+- `SignInSheet.jsx` ("Keep dreaming") opens automatically for a guest on a 429; `AccountMenu.jsx` (map
+  corner) shows the signed-in email and a sign-out button.
+- Joining a shared world links the player row to the signed-in account (`players.user_id`); if you're
+  signed in but your device joined before you had an account, it's linked the next time the world loads.
+- `peek` and `load` stay free (no rate limit) — they don't call any AI model.
 
 ## Illustrations (OpenAI API key)
 
