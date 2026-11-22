@@ -8,6 +8,7 @@
  * Panoramas are equirectangular (2:1). The photo's direction (straight ahead) is u = 0.5.
  */
 import { drawFit, loadImage, toBlob } from './depthEstimator';
+import { authHeaders } from './authClient';
 
 // the free in-browser painter lives in its own file
 export { paintPanorama, seeded } from './panoramaPainter';
@@ -38,7 +39,7 @@ export async function startAIPanorama(photo, moodKey, title) {
     const image = await blobToDataURL(small);
     const res = await fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ image, prompt: worldPrompt(moodKey, title) }),
     });
     if (res.status === 404 || res.status === 501) return null; // no server function / no key

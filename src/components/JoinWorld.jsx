@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { X, ArrowRight } from 'lucide-react';
 import { PLAYER_COLORS, CODE_LENGTH, normalizeCode, isCode } from '../shared/worldState';
 import { peekWorld, joinShared, SharedNotConfigured } from '../services/sharedClient';
+import { RateLimited } from '../services/authClient';
 import { getMood } from '../data/moods';
 
 const NAME_KEY = 'reve-ai:my-name';
@@ -67,7 +68,7 @@ export function ColorPicker({ value, onChange, taken = [] }) {
  * Join a friend's world: code → name and color → you wake up inside.
  * As quick as joining a room in Among Us; the narrator writes your arrival.
  */
-export default function JoinWorld({ open, initialCode = '', onClose, onJoined, onWeave }) {
+export default function JoinWorld({ open, initialCode = '', onClose, onJoined, onWeave, onRateLimited }) {
   const [code, setCode] = useState('');
   const [world, setWorld] = useState(null); // what the code opens
   const [name, setName] = useState(lastName);
@@ -114,6 +115,7 @@ export default function JoinWorld({ open, initialCode = '', onClose, onJoined, o
       onJoined(view);
     } catch (err) {
       setError(err.message || 'Couldn’t join. Try again?');
+      if (err instanceof RateLimited) onRateLimited?.(err);
     } finally {
       onWeave?.(null);
       setBusy(false);

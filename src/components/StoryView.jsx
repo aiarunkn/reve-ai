@@ -7,6 +7,7 @@ import InviteSheet from './InviteSheet';
 import { getMood } from '../data/moods';
 import { loadStory, saveStory, loadPlaceImages, applyRecord } from '../services/storyStore';
 import { playTurn, welcomeBack, summarizeTurns, NotConfiguredError } from '../services/storyClient';
+import { RateLimited } from '../services/authClient';
 import { getAsset, onAsset } from '../services/assetStore';
 import { ensureStoryArt } from '../services/storyArt';
 import { segmentNarration } from '../services/voiceService';
@@ -52,7 +53,7 @@ function newsSince(before, after) {
   return (after?.meanwhile || []).filter((m) => m.fresh && m.id > seen);
 }
 
-export default function StoryView({ storyId, onExit, onDelete, notify, onShare, openInvite = false }) {
+export default function StoryView({ storyId, onExit, onDelete, notify, onShare, openInvite = false, onRateLimited }) {
   const code = sharedCode(storyId); // set when this is a shared world
   const [story, setStory] = useState(null);
   const [places, setPlaces] = useState([]);
@@ -133,7 +134,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
           });
           setRecap(interlude);
         } catch (err) {
-          if (!(err instanceof NotConfiguredError)) console.warn('[story] recap failed', err);
+          if (!(err instanceof NotConfiguredError) && !(err instanceof RateLimited)) console.warn('[story] recap failed', err);
         } finally {
           if (alive) setBusy(false);
         }
@@ -245,7 +246,8 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
       if (err.name === 'AbortError') return;
       setDraft(t);
       setBeat(Infinity);
-      setError(err instanceof NotConfiguredError ? 'The narrator needs an Anthropic API key to continue this story.' : err.message);
+      if (err instanceof RateLimited) { setError(err.message); onRateLimited?.(err); }
+      else setError(err instanceof NotConfiguredError ? 'The narrator needs an Anthropic API key to continue this story.' : err.message);
     } finally {
       setLive(null);
       setPending(null);

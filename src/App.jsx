@@ -5,7 +5,10 @@ import PlantSeedModal from './components/PlantSeedModal';
 import CreateWorldModal from './components/CreateWorldModal';
 import WeavingOverlay from './components/WeavingOverlay';
 import JoinWorld from './components/JoinWorld';
+import SignInSheet from './components/SignInSheet';
+import AccountMenu from './components/AccountMenu';
 import { shareStory, leaveShared, identityFor, sharedCode, ensureIndexed } from './services/sharedClient';
+import { RateLimited } from './services/authClient';
 import { SEED_MEMORIES } from './data/seedMemories';
 import { loadMemories, saveMemories } from './services/storage';
 import { generateMemoryImage } from './services/memoryGenerator';
@@ -68,7 +71,15 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [joining, setJoining] = useState(null); // null, or the code being joined ('' = typing one)
   const [inviteFor, setInviteFor] = useState(null); // a world that was just opened up: show its code
+  const [signIn, setSignIn] = useState(null); // null, or { reason } while the sign-in sheet is open
   const mapScroll = useRef(0);
+
+  const openSignIn = useCallback((reason = '') => setSignIn({ reason }), []);
+  /** Shows a friendly toast, and for a guest, opens the sign-in sheet. */
+  const handleRateLimit = useCallback((err) => {
+    setToast(err.message);
+    if (err.signIn) openSignIn(err.message);
+  }, [openSignIn]);
 
   const roomIndex = route.view === 'room' ? memories.findIndex((m) => m.id === route.id) : -1;
   const room = roomIndex >= 0 ? memories[roomIndex] : null;
@@ -263,7 +274,8 @@ export default function App() {
       go({ view: 'story', id });
     } catch (err) {
       console.error(err);
-      setToast(err instanceof NotConfiguredError
+      if (err instanceof RateLimited) handleRateLimit(err);
+      else setToast(err instanceof NotConfiguredError
         ? 'Stories need a narrator: add ANTHROPIC_API_KEY on the server (Vercel → Settings → Environment Variables), then redeploy.'
         : err?.message || 'Something went wrong while beginning that story.');
     } finally {
@@ -274,10 +286,15 @@ export default function App() {
 
   // open a solo story up to friends: it gets a code and moves to its shared home
   const openStory = async (story, color) => {
-    const view = await shareStory(story, color);
-    setStories(loadStoryIndex());
-    setInviteFor(view.id);
-    go({ view: 'story', id: view.id }, { replace: true });
+    try {
+      const view = await shareStory(story, color);
+      setStories(loadStoryIndex());
+      setInviteFor(view.id);
+      go({ view: 'story', id: view.id }, { replace: true });
+    } catch (err) {
+      if (err instanceof RateLimited) handleRateLimit(err);
+      throw err; // InviteSheet shows err.message and stops spinning
+    }
   };
 
   const removeStory = async () => {
@@ -324,7 +341,7 @@ export default function App() {
         {storyEntry ? (
           <motion.div key={storyEntry.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, filter: 'blur(10px)' }} transition={{ duration: 0.8 }} className="fixed inset-0">
             <Suspense fallback={<div className="fixed inset-0 bg-midnight" />}>
-              <StoryView storyId={storyEntry.id} onExit={() => { setStories(loadStoryIndex()); setInviteFor(null); exit(); }} onDelete={removeStory} notify={setToast} onShare={openStory} openInvite={inviteFor === storyEntry.id} />
+              <StoryView storyId={storyEntry.id} onExit={() => { setStories(loadStoryIndex()); setInviteFor(null); exit(); }} onDelete={removeStory} notify={setToast} onShare={openStory} openInvite={inviteFor === storyEntry.id} onRateLimited={handleRateLimit} />
             </Suspense>
           </motion.div>
         ) : world ? (
@@ -372,6 +389,7 @@ export default function App() {
             exit={{ opacity: 0, filter: 'blur(8px)' }}
             transition={{ duration: 0.8, ease: 'easeInOut' }}
           >
+            <AccountMenu onSignIn={() => openSignIn()} />
             <WorldMap
               stories={stories}
               onEnterStory={(id) => { mapScroll.current = window.scrollY; go({ view: 'story', id }); }}
@@ -389,6 +407,7 @@ export default function App() {
         initialCode={joining || ''}
         onClose={() => setJoining(null)}
         onWeave={(mood) => setWeaving(mood ? { mood, stage: 'arrive' } : null)}
+        onRateLimited={handleRateLimit}
         onJoined={(view) => {
           setJoining(null);
           setStories(loadStoryIndex());
@@ -397,6 +416,7 @@ export default function App() {
         }}
       />
       <CreateWorldModal open={imagining} onClose={() => setImagining(false)} onSubmit={imagine} />
+      <SignInSheet open={!!signIn} reason={signIn?.reason} onClose={() => setSignIn(null)} />
       <WeavingOverlay moodKey={weaving?.mood} preview={weaving?.preview} stage={weaving?.stage} progress={weaving?.progress} />
 
       <AnimatePresence>
