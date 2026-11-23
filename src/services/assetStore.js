@@ -1,7 +1,7 @@
 /**
- * Large per-memory assets (depth maps, 360° panoramas) live in IndexedDB,
- * which holds far more than localStorage. Keys look like `<memoryId>:<kind>`.
- *   kinds: 'depth' | 'pano' (AI) | 'pano-local-v2' (painted in the browser)
+ * Large assets (whole stories, place pictures, portraits, moments, scene images) live in
+ * IndexedDB, which holds far more than localStorage. Keys look like `<ownerId>:<kind>`,
+ * e.g. `story-…:place0`, `story-…:portrait1`, `world-…:scene2`.
  */
 const DB = 'reve-ai';
 const STORE = 'assets';
@@ -50,16 +50,6 @@ export async function putAsset(id, kind, blob) {
   }
 }
 
-export async function deleteAssets(id) {
-  try {
-    await tx('readwrite', (s) => {
-      ['depth', 'pano', 'pano-local-v2'].forEach((k) => s.delete(`${id}:${k}`));
-    });
-  } catch {
-    /* nothing to delete */
-  }
-}
-
 export async function deleteAssetKinds(id, kinds) {
   try {
     await tx('readwrite', (s) => kinds.forEach((k) => s.delete(`${id}:${k}`)));
@@ -68,7 +58,7 @@ export async function deleteAssetKinds(id, kinds) {
   }
 }
 
-/* tiny event bus so an open room hears when a background AI panorama lands */
+/* tiny event bus so an open story hears when a picture painted in the background lands */
 const listeners = new Map();
 export function onAsset(id, fn) {
   if (!listeners.has(id)) listeners.set(id, new Set());

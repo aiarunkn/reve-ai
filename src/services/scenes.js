@@ -10,6 +10,45 @@
 
 const QUOTES = /^["“”'‘’]+|["“”'‘’]+$/g;
 
+const QUOTE = /(“[^”]+”|"[^"]+")/; // used with split (capturing group keeps the quotes)
+const IS_QUOTE = /^(“[^”]+”|"[^"]+")$/;
+const clean = (t) => t.replace(/\*([^*]+)\*/g, '$1').replace(/\s+/g, ' ').trim();
+
+/**
+ * Split narration into [{ speaker, text }] (used to turn a scene into beats), attributing each quoted line to the
+ * character named nearest to it ("…," Théo says). Unattributed lines keep the
+ * previous speaker in that paragraph, or fall back to the narrator.
+ */
+export function segmentNarration(text, cast, playerName) {
+  const names = cast.map((c) => ({ full: c.name, first: c.name.split(' ')[0] }));
+  const out = [];
+  for (const para of text.split(/\n{2,}/)) {
+    const parts = para.split(QUOTE).filter((p) => p && p.trim());
+    let lastSpeaker = null;
+    parts.forEach((part, i) => {
+      if (!IS_QUOTE.test(part.trim())) {
+        out.push({ speaker: 'narrator', text: clean(part) });
+        return;
+      }
+      const after = (parts[i + 1] || '').slice(0, 90);
+      const before = (parts[i - 1] || '').split(/[.!?]\s/).pop() || '';
+      const near = (s) => names.find((n) => new RegExp(`\\b${n.first}\\b`).test(s));
+      let who = near(after)?.full || near(before)?.full;
+      if (!who && /\byou\b\s+(say|ask|whisper|reply|murmur|call|answer)/i.test(after + before)) who = playerName;
+      who = who || lastSpeaker || 'narrator';
+      lastSpeaker = who;
+      out.push({ speaker: who, text: clean(part.trim().slice(1, -1)) });
+    });
+  }
+  // merge neighbours spoken by the same voice
+  return out.filter((s) => s.text).reduce((acc, s) => {
+    const prev = acc[acc.length - 1];
+    if (prev && prev.speaker === s.speaker) prev.text += ` ${s.text}`;
+    else acc.push({ ...s });
+    return acc;
+  }, []);
+}
+
 export function toBeats(text, cast = [], playerName = '', segment = null) {
   if (!text) return [];
   const names = cast.map((c) => ({ full: c.name, first: c.name.split(' ')[0].toLowerCase(), lower: c.name.toLowerCase() }));

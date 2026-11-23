@@ -39,20 +39,20 @@ export default function InviteSheet({ story, here = [], mood, onClose, onOpen })
 
         {!code ? (
           <>
-            <h2 className="font-serif text-3xl italic text-parchment text-glow">Dream together</h2>
+            <h2 className="font-display text-3xl font-semibold text-parchment">Dream together</h2>
             <p className="mx-auto mt-3 max-w-xs text-sm leading-relaxed text-parchment/65">
               Friends wake up in this same world and live their own scenes in it. What one of you does, the others will feel.
             </p>
-            <p className="mt-6 text-xs uppercase tracking-[0.2em] text-parchment/45">Your color</p>
+            <p className="mt-6 text-xs font-medium text-parchment/45">Your color</p>
             <div className="mt-3"><ColorPicker value={color} onChange={setColor} /></div>
-            <button type="button" onClick={open} disabled={busy} className="btn-lantern mt-7 rounded-full px-7 py-3 text-[15px] font-medium disabled:opacity-50">
+            <button type="button" onClick={open} disabled={busy} className="btn-lantern mt-7 rounded-full px-7 py-3 text-base font-medium disabled:opacity-50">
               {busy ? 'Opening the door…' : 'Get a code'}
             </button>
             {error && <p className="mt-4 text-sm text-rose-300/90">{error}</p>}
           </>
         ) : (
           <>
-            <h2 className="font-serif text-3xl italic text-parchment text-glow">Your world’s code</h2>
+            <h2 className="font-display text-3xl font-semibold text-parchment">Your world’s code</h2>
             <p className="mt-1.5 text-sm text-parchment/55">Friends type it in, or open the link.</p>
             <div className="mt-6 select-text"><CodeBoxes value={code} /></div>
             <div className="mt-6 flex justify-center gap-2">
@@ -68,8 +68,8 @@ export default function InviteSheet({ story, here = [], mood, onClose, onOpen })
               {story.players.map((p, i) => (
                 <li key={p.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5">
                   <span className="relative h-3 w-3 shrink-0 rounded-full" style={{ background: p.color, boxShadow: online.has(p.id) ? `0 0 10px ${p.color}` : 'none' }} />
-                  <span className="min-w-0 flex-1 truncate font-serif text-lg text-parchment">{p.name}{i === 0 && <span className="ml-1.5 text-xs text-parchment/45">(you)</span>}</span>
-                  <span className="text-[11px] uppercase tracking-wider text-parchment/40">{online.has(p.id) ? 'here now' : p.tag}</span>
+                  <span className="min-w-0 flex-1 truncate text-lg text-parchment">{p.name}{i === 0 && <span className="ml-1.5 text-xs text-parchment/45">(you)</span>}</span>
+                  <span className="text-xs font-medium text-parchment/40">{online.has(p.id) ? 'here now' : p.tag}</span>
                 </li>
               ))}
             </ul>

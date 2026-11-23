@@ -13,6 +13,7 @@
 import { getAsset, putAsset, emitAsset } from './assetStore';
 import { authHeaders, RateLimited } from './authClient';
 import { sharedArt, claimSharedArt, putSharedArt } from './sharedClient';
+import { castOf } from '../shared/worldState';
 
 const ENDPOINT = import.meta.env.VITE_MEDIA_ENDPOINT || '/api/media';
 let imagesOff = false; // flips to true once the server says no image key is configured
@@ -43,25 +44,49 @@ export function placePrompt(story, i) {
   return `${styleLine(story)}\nA wide establishing view of "${p.name}" in ${story.bible.setting} ${p.description} No people in the foreground.\n${GUARD}`;
 }
 
-export function portraitPrompt(story, c) {
-  return `${styleLine(story)}\nA three-quarter-length figure of ${c.name}, ${c.role}, standing centred and facing the viewer, as a character in a visual novel. ${c.look} Expression shows: ${c.personality} Plain dark, softly lit background in the story's palette, empty around the figure.\n${GUARD}`;
+/** The words that pin down how someone looks: the fixed visual ID when there is one (older stories: their look). */
+const visualOf = (c) => c?.visual || c?.look || '';
+
+function protagonistVisual(story) {
+  const me = story.players[0];
+  const p = story.bible.protagonist;
+  return me.visual || (p && p.name === me.name ? p.visual : '') || me.look || '';
 }
 
-export function momentPrompt(story, turn) {
+export function portraitPrompt(story, c) {
+  return `${styleLine(story)}\nA three-quarter-length figure of ${c.name}, ${c.role}, standing centred and facing the viewer, as a character in a visual novel. Appearance (exact): ${visualOf(c)}. Expression shows: ${c.personality} Plain dark, softly lit background in the story's palette, empty around the figure.\n${GUARD}`;
+}
+
+/** Who is in a turn's scene: the narrator's own list when it gave one, else names found in the text. */
+export function presentIn(story, turn) {
+  const cast = castOf(story);
+  const listed = (turn.present || []).map((n) => n.toLowerCase());
+  const text = (turn.narration || '').toLowerCase();
+  const found = listed.length
+    ? cast.filter((c) => listed.includes(c.name.toLowerCase()) || listed.includes(c.name.split(' ')[0].toLowerCase()))
+    : cast.filter((c) => text.includes(c.name.split(' ')[0].toLowerCase()));
+  return found.map((c) => ({ c, k: cast.indexOf(c) }));
+}
+
+const MAX_REFS = 3;
+
+export function momentPrompt(story, turn, refs) {
   const place = story.bible.places[story.scene] || story.bible.places[0];
   const text = turn.narration.replace(/\s+/g, ' ');
-  const present = story.bible.cast.filter((c) => text.includes(c.name.split(' ')[0]));
+  const present = presentIn(story, turn); // only the first MAX_REFS come with a reference portrait
   const me = story.players[0];
+  const mine = protagonistVisual(story);
   const looks = [
-    me.look ? `${me.name} (the protagonist): ${me.look}` : `${me.name} (the protagonist), seen from behind or in profile`,
-    ...present.map((c) => `${c.name}: ${c.look}`),
-  ].join(' ');
-  return `${styleLine(story)}\nIllustrate this moment from the story, set in ${place?.name}: "${text.slice(0, 700)}"\nCharacters: ${looks}\n${GUARD}`;
+    mine ? `${me.name} (the protagonist): ${mine}.` : `${me.name} (the protagonist), seen from behind or in profile.`,
+    ...present.map(({ c }, j) => `${c.name}: ${visualOf(c)}.${refs?.[j] ? ` Same person as reference image ${refs.filter(Boolean).indexOf(refs[j]) + 1}: keep their face, hair and outfit exactly.` : ''}`),
+  ].join('\n');
+  return `${styleLine(story)}\nIllustrate this moment from the story, set in ${place?.name}: "${text.slice(0, 700)}"\nCharacters (draw each exactly as described, same face and outfit as always):\n${looks}\n${GUARD}`;
 }
 
-export async function generateImage(prompt, shape = 'landscape') {
+export async function generateImage(prompt, shape = 'landscape', refs = []) {
   if (imagesOff) throw new ImagesNotConfigured();
-  const res = await fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ action: 'image', prompt, shape }) });
+  const body = { action: 'image', prompt, shape, ...(refs.length ? { refs } : {}) };
+  const res = await fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify(body) });
   if (res.status === 501 || res.status === 404) {
     imagesOff = true;
     throw new ImagesNotConfigured();
@@ -123,12 +148,19 @@ async function paintKind(story, kind) {
   const portrait = kind.match(/^portrait(\d+)$/);
   if (portrait) {
     if (imagesOff) return null;
-    const c = story.bible.cast[Number(portrait[1])];
+    const c = castOf(story)[Number(portrait[1])];
+    if (!c) return null;
     return { blob: await generateImage(portraitPrompt(story, c), 'portrait'), mime: 'image/jpeg' };
   }
   const moment = kind.match(/^moment(\d+)$/);
   if (moment) {
-    return { blob: await generateImage(momentPrompt(story, story.turns[Number(moment[1])]), 'landscape'), mime: 'image/jpeg' };
+    const turn = story.turns[Number(moment[1])];
+    // the portraits we already painted are the strongest way to keep faces the same
+    const refs = await Promise.all(presentIn(story, turn).slice(0, MAX_REFS).map(async ({ k }) => {
+      const blob = await getAsset(story.id, `portrait${k}`);
+      return blob instanceof Blob ? shrinkToDataUrl(blob).catch(() => null) : null;
+    }));
+    return { blob: await generateImage(momentPrompt(story, turn, refs), 'landscape', refs.filter(Boolean)), mime: 'image/jpeg' };
   }
   return null;
 }
@@ -137,6 +169,18 @@ async function storeLocally(story, kind, result) {
   await putAsset(story.id, kind, result.blob);
   const i = kind.match(/^place(\d+)$/)?.[1];
   if (i != null && result.credit) await putAsset(story.id, `credit${i}`, result.credit);
+}
+
+/** A small JPEG data URL of a picture, so reference images stay well under the request size limit. */
+async function shrinkToDataUrl(blob, max = 512) {
+  const bmp = await createImageBitmap(blob);
+  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bmp.width * scale);
+  canvas.height = Math.round(bmp.height * scale);
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close?.();
+  return canvas.toDataURL('image/jpeg', 0.85);
 }
 
 function blobToBase64(blob) {
@@ -263,7 +307,7 @@ export async function ensureStoryArt(story) {
     const missingPlaces = [];
     for (const i of placeOrder) if (!(await getAsset(story.id, `place${i}`))) missingPlaces.push(i);
     const missingCast = [];
-    for (let k = 0; k < story.bible.cast.length; k++) if (!(await getAsset(story.id, `portrait${k}`))) missingCast.push(k);
+    for (let k = 0; k < castOf(story).length; k++) if (!(await getAsset(story.id, `portrait${k}`))) missingCast.push(k);
 
     const kinds = [
       ...missingPlaces.slice(0, 1).map((i) => `place${i}`),

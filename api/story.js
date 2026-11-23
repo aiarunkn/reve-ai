@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { sharedConfigured, loadAs, narratorView, insertTurn } from './_db.js';
 import { enforce } from './_limits.js';
+import { castOf } from '../src/shared/worldState.js';
 
 const MODEL = 'claude-opus-5-5';
 // If a reply is ever declined by a safety classifier, the API retries it on a fallback model.
@@ -95,6 +96,7 @@ How a scene is written (the app shows it one beat at a time, like a visual novel
 - 4-8 beats per turn. Vivid and specific, never purple. Plain text: no headings, no lists, no markdown except *italics*.
 
 Continuity (this matters most):
+- Before you write, silently check: where is everyone right now, who is actually in this place, and what does each of them know? A character can only mention what they saw, were told or could reasonably guess.
 - Pick up exactly where the last beat ended. The first beat shows the immediate result of what the player just did or said.
 - Stay in the current place, with the characters already present, unless the player moves or someone visibly arrives.
 - Characters answer what was actually said to them, in their own voice, acting on their own wants. They remember the ledger; never reset or forget.
@@ -102,12 +104,16 @@ Continuity (this matters most):
 - Never decide a player's feelings, words or big actions beyond what they chose. Players who have not joined yet are played by you, true to their description, without big irreversible choices.
 - End on a beat that invites the player to respond: usually a character's line, often a question to you.
 - The 3 suggested choices are things the player could say or do in direct response to that last beat: distinct in spirit (e.g. warm, bold, guarded), each under 10 words, written as the player's own line or action.
-- Keep the world's facts consistent with the bible and the ledger.
+- Keep the world's facts consistent with the bible and the ledger. Core facts are never contradicted, however long ago they were set.
+- Each character keeps the voice shown in their sample lines and their verbal habit: same vocabulary, rhythm and manners every time they speak. Their look never changes unless the story changes it on the page.
+- Anyone new you name who might matter again must be recorded in record_turn's new_characters, so they stay the same person next time.
 
 Boundaries:
 - Create original characters and stories. If a premise names a famous book, film or game place, give the player that kind of place, faithfully in feel (its architecture, light, sounds and mood), but under your own original name, with your own original characters and lore; do not reproduce or continue copyrighted stories or characters.
 - Mature themes (danger, grief, romance, rivalry) are welcome when the story calls for them; keep anything sexual off-page.
 - If a player seems to be in real distress or danger outside the story, step gently out of the fiction to care for them directly and suggest reaching out to someone they trust or to local support.`;
+
+const VISUAL_HELP = 'A fixed visual ID used word for word in every illustration of them: apparent age, skin tone, build, face shape, hair colour and style, eye colour, one distinctive mark, and a signature outfit with one item they always carry or wear. Comma-separated, concrete, under 45 words, no names. E.g. "woman, about 30, olive skin, lean, sharp jaw, black hair in a low braid, grey eyes, thin scar through left eyebrow, rust-coloured wool coat, brass hoop earrings"';
 
 const Bible = z.object({
   title: z.string().describe('Title of the story, 1-5 words'),
@@ -126,17 +132,20 @@ const Bible = z.object({
     name: z.string(),
     role: z.string().describe('Under 8 words'),
     look: z.string().describe('1 sentence'),
+    visual: z.string().describe(VISUAL_HELP),
     personality: z.string().describe('1-2 sentences'),
     voice: z.string().describe('How they talk'),
+    sample_lines: z.array(z.string()).describe('2-3 short lines they would actually say, in their voice, that show how they talk'),
+    tic: z.string().describe('One verbal habit that makes them recognisable, e.g. "never uses contractions" or "answers questions with questions"'),
     wants: z.string().describe('What they are after'),
     secret: z.string(),
     bond: z.string().describe('How they relate to the players at the start, under 18 words'),
-    voice_tone: z.enum(['low', 'medium', 'high']).describe('Where their speaking voice sits, used for read-aloud'),
   })).describe('2-4 non-player characters with their own goals; the first one is the person in the opening scene'),
   threads: z.array(z.string()).describe('3 open storylines, each under 14 words'),
   protagonist: z.object({
     name: z.string(),
     look: z.string().describe('1 sentence'),
+    visual: z.string().describe(VISUAL_HELP),
     want: z.string().describe('What they want most, 1 sentence'),
     secret: z.string().describe('A secret only they and the narrator know'),
     tag: z.string().describe('A short label shown under their name, e.g. "House Ashgrove · Year 5" or "Painter · Montparnasse"'),
@@ -212,6 +221,25 @@ const Record = z.object({
     note: z.string().describe('Under 12 words, why'),
   })),
   facts: z.array(z.string()).describe('New facts that are now canon, each under 16 words'),
+  core_facts: z.array(z.string()).describe('0-2 of the facts that must never be forgotten (identities, deaths, vows, origins, big revelations)'),
+  new_characters: z.array(z.object({
+    name: z.string(),
+    role: z.string(),
+    look: z.string(),
+    visual: z.string(),
+    personality: z.string(),
+    voice: z.string(),
+    sample_lines: z.array(z.string()),
+    tic: z.string(),
+    wants: z.string(),
+    secret: z.string(),
+  })).describe('Named characters introduced this turn who are not in the cast yet'),
+  character_states: z.array(z.object({
+    character: z.string(),
+    now: z.string().describe('Where they are and their state of mind now, under 14 words'),
+    learned: z.array(z.string()).describe('Things they found out this turn, each under 14 words'),
+  })).describe('Cast members whose whereabouts, mood or knowledge changed this turn'),
+  present: z.array(z.string()).describe('Names of the cast members physically present at the end of the scene'),
   threads_opened: z.array(z.string()),
   threads_closed: z.array(z.string()).describe('Exact text of threads that were resolved'),
   chapter_end: z.string().describe('If this turn ends a chapter, the title of the next chapter; otherwise empty'),
@@ -219,13 +247,13 @@ const Record = z.object({
 
 const RECORD_TOOL = {
   name: 'record_turn',
-  description: 'Record what this turn changed in the story: where we are, what time it is, lasting consequences, relationship changes, new canon facts, opened/closed threads, and three suggested next moves. Call it exactly once, after the narration.',
+  description: 'Record what this turn changed in the story: where we are, what time it is, who is present, lasting consequences, relationship changes, new canon facts (and which of them are core), any newly named characters (with a fixed visual ID and voice), changes to characters\' whereabouts, mood or knowledge, opened/closed threads, and three suggested next moves. Call it exactly once, after the narration.',
   strict: true,
   eager_input_streaming: true,
   input_schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'time', 'choices', 'consequences', 'relationships', 'facts', 'threads_opened', 'threads_closed', 'chapter_end'],
+    required: ['scene', 'time', 'choices', 'consequences', 'relationships', 'facts', 'core_facts', 'new_characters', 'character_states', 'present', 'threads_opened', 'threads_closed', 'chapter_end'],
     properties: {
       scene: { type: 'integer' },
       time: { type: 'string' },
@@ -257,12 +285,52 @@ const RECORD_TOOL = {
         },
       },
       facts: { type: 'array', items: { type: 'string' } },
+      core_facts: { type: 'array', items: { type: 'string' } },
+      new_characters: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'role', 'look', 'visual', 'personality', 'voice', 'sample_lines', 'tic', 'wants', 'secret'],
+          properties: {
+            name: { type: 'string' },
+            role: { type: 'string' },
+            look: { type: 'string' },
+            visual: { type: 'string' },
+            personality: { type: 'string' },
+            voice: { type: 'string' },
+            sample_lines: { type: 'array', items: { type: 'string' } },
+            tic: { type: 'string' },
+            wants: { type: 'string' },
+            secret: { type: 'string' },
+          },
+        },
+      },
+      character_states: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['character', 'now', 'learned'],
+          properties: {
+            character: { type: 'string' },
+            now: { type: 'string' },
+            learned: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+      present: { type: 'array', items: { type: 'string' } },
       threads_opened: { type: 'array', items: { type: 'string' } },
       threads_closed: { type: 'array', items: { type: 'string' } },
       chapter_end: { type: 'string' },
     },
   },
 };
+
+function castLine(c) {
+  const lines = (c.sample_lines || []).filter(Boolean).map((l) => `"${l}"`).join(' ');
+  return `- ${c.name}, ${c.role}. ${c.look} ${c.personality} Voice: ${c.voice}${c.tic ? ` Habit: ${c.tic}.` : ''}${lines ? ` Sounds like: ${lines}` : ''} Wants: ${c.wants} Secret: ${c.secret}`;
+}
 
 function bibleBlock(story) {
   const b = story.bible;
@@ -274,7 +342,7 @@ PLACES (index: name — description)
 ${b.places.map((p, i) => `${i}: ${p.name} — ${p.description}`).join('\n')}
 
 CAST
-${b.cast.map((c) => `- ${c.name}, ${c.role}. ${c.look} ${c.personality} Voice: ${c.voice} Wants: ${c.wants} Secret: ${c.secret}`).join('\n')}
+${castOf(story).map(castLine).join('\n')}
 
 PLAYERS
 ${playersBlock(story.players)}`;
@@ -287,13 +355,20 @@ function ledgerBlock(story) {
     return `- ${character} → ${player}: ${v.score >= 0 ? '+' : ''}${v.score}${v.notes?.length ? ` (${v.notes.slice(-2).join('; ')})` : ''}`;
   }).join('\n');
   const open = (L.threads || []).filter((t) => t.status === 'open').map((t) => `- ${t.text}`).join('\n');
+  const states = Object.entries(L.states || {}).map(([name, st]) => `- ${name}: ${st.now || '—'}${st.knows?.length ? `. Knows: ${st.knows.join('; ')}` : ''}`).join('\n');
+  const core = L.core || [];
+  const coreSet = new Set(core);
   return `THE LEDGER (canon — never contradict it)
 Chapter ${story.chapter?.n || 1}: ${story.chapter?.title || ''}
 Time now: ${story.time || 'unknown'}
 Current place: ${story.bible.places[story.scene ?? 0]?.name || '—'}
 Story so far: ${L.summary || '(just beginning)'}
-Facts:
-${(L.facts || []).slice(-40).map((f) => `- ${f}`).join('\n') || '- (none yet)'}
+Core facts (never contradict, never forget):
+${core.map((f) => `- ${f}`).join('\n') || '- (none yet)'}
+Recent facts:
+${(L.facts || []).filter((f) => !coreSet.has(f)).slice(-40).map((f) => `- ${f}`).join('\n') || '- (none yet)'}
+Where the characters stand:
+${states || '- (as in the cast)'}
 Open threads:
 ${open || '- (none)'}
 Relationships (score from -10 hostile to +10 devoted):
@@ -393,7 +468,7 @@ async function turn(res, body, identity) {
 /* ------------------------------------------------------------------ */
 
 const Arrival = z.object({
-  look: z.string().describe('How the new player looks here, 1 sentence, built from what they said about themselves'),
+  look: z.string().describe(`How the new player looks here, built from what they said about themselves. ${VISUAL_HELP}`),
   tag: z.string().describe('A short label under their name, e.g. "New arrival · Year 5" or "Painter · Montparnasse"'),
   want: z.string().describe('What they want most in this world, 1 sentence'),
   secret: z.string().describe('A secret only they and the narrator know, that ties them to this world'),
@@ -471,7 +546,7 @@ async function summarize({ story, turns }) {
     model: MODEL,
     max_tokens: 2000,
     output_config: { effort: 'low', format: zodOutputFormat(Summary) },
-    system: `You keep the running summary of the interactive story "${story.bible.title}". Fold the new events into the existing summary. Keep names, choices and consequences that could matter later.`,
+    system: `You keep the running summary of the interactive story "${story.bible.title}". Fold the new events into the existing summary. Keep names, choices and consequences that could matter later. Never drop who someone is, a promise, a death or a revelation, however old.`,
     messages: [{ role: 'user', content: `EXISTING SUMMARY\n${story.ledger?.summary || '(none)'}\n\nNEW EVENTS\n${text}` }],
   });
   if (!response.parsed_output) throw httpError(502, 'Summary came back incomplete.');

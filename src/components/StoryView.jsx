@@ -10,11 +10,10 @@ import { playTurn, welcomeBack, summarizeTurns, NotConfiguredError } from '../se
 import { RateLimited } from '../services/authClient';
 import { getAsset, onAsset } from '../services/assetStore';
 import { ensureStoryArt } from '../services/storyArt';
-import { segmentNarration } from '../services/voiceService';
 import { ambient } from '../services/ambientAudio';
-import { toBeats, placeSounds } from '../services/scenes';
+import { toBeats, placeSounds, segmentNarration } from '../services/scenes';
 import { sharedCode, loadShared, connectLive, identityFor } from '../services/sharedClient';
-import { previewOf } from '../shared/worldState';
+import { previewOf, castOf } from '../shared/worldState';
 
 const pref = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch { return d; } };
 const setPref = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { /* private mode */ } };
@@ -101,7 +100,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
       if (!alive || !s) return;
       setStory(s);
       loadPlaceImages(storyId, s.bible.places.length).then((u) => { urls.push(...u); if (alive) setPlaces(u); });
-      Promise.all(s.bible.cast.map((_, k) => getAsset(storyId, `portrait${k}`))).then((bs) => {
+      Promise.all(castOf(s).map((_, k) => getAsset(storyId, `portrait${k}`))).then((bs) => {
         const u = bs.map((b) => (b ? URL.createObjectURL(b) : null));
         urls.push(...u);
         if (alive) setPortraits(u);
@@ -234,7 +233,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
         return;
       }
       const index = story.turns.length;
-      const turn = { kind: 'turn', chapter: story.chapter.n, actions, narration, choices: record?.choices || [], consequences: record?.consequences || [], time: record?.time, at: new Date().toISOString() };
+      const turn = { kind: 'turn', chapter: story.chapter.n, actions, narration, choices: record?.choices || [], consequences: record?.consequences || [], present: record?.present || [], time: record?.time, at: new Date().toISOString() };
       let next = applyRecord({ ...story, turns: [...story.turns, turn], lastPlayedAt: new Date().toISOString() }, record, index);
       if (next.chapter.n !== story.chapter.n) {
         next = { ...next, turns: [...next.turns, { kind: 'chapter', chapter: next.chapter.n, title: next.chapter.title, actions: [], at: new Date().toISOString() }] };
@@ -242,6 +241,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
       }
       commit(next);
       maybeSummarize(next);
+      if (record?.new_characters?.length) ensureStoryArt(next); // paint whoever just walked in
     } catch (err) {
       if (err.name === 'AbortError') return;
       setDraft(t);
@@ -264,7 +264,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
 
   const beats = useMemo(() => {
     if (!story) return [];
-    const cast = story.bible.cast;
+    const cast = castOf(story);
     const yourLine = (text) => ({ speaker: me.name, you: true, text });
     if (streaming) {
       const parsed = toBeats(live, cast, me.name, segmentNarration);
@@ -289,7 +289,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
       const b = beats[i];
       const who = b && !b.you && (b.speaker || b.hint);
       if (who) {
-        const k = story.bible.cast.findIndex((c) => c.name === who);
+        const k = castOf(story).findIndex((c) => c.name === who);
         if (k >= 0) return { name: who, index: k, speaking: i === at };
       }
     }
@@ -360,8 +360,8 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
       <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))]">
         <button type="button" onClick={onExit} className="glass-btn rounded-full p-2.5 text-parchment/85" aria-label="Back to your stories"><ArrowLeft size={18} /></button>
         <div className="min-w-0 text-center">
-          <p className="truncate font-serif text-lg text-parchment text-glow">{place?.name}</p>
-          <p className="truncate text-[11px] uppercase tracking-[0.25em] text-parchment/50">{story.time}</p>
+          <p className="truncate font-display text-lg font-semibold text-parchment text-glow">{place?.name}</p>
+          <p className="truncate text-xs text-parchment/60">{story.time}</p>
           {code && story.players.length > 1 && (
             <button type="button" onClick={() => setInvite(true)} className="mx-auto mt-1 flex items-center justify-center gap-1" aria-label={`${story.players.length} dreamers in this world`}>
               {story.players.slice(0, 8).map((p) => (
@@ -402,39 +402,38 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.08 * i }}
-                    className="rounded-2xl border bg-black/55 px-5 py-3.5 text-left text-[16px] text-parchment backdrop-blur-md transition-colors hover:bg-black/70"
-                    style={{ borderColor: `${mood.primary}55` }}
+                    className="vn-choice mx-auto w-full max-w-xl rounded-full px-6 py-3.5 text-center text-base font-medium"
                   >
                     <Rich text={c} />
                   </motion.button>
                 ))}
-                <button type="button" onClick={() => setWriting(true)} className="inline-flex items-center gap-1.5 self-center py-1 text-sm text-parchment/60 hover:text-parchment"><Pencil size={13} /> or say something else</button>
+                <button type="button" onClick={() => setWriting(true)} className="inline-flex items-center gap-1.5 self-center rounded-full bg-black/45 px-4 py-1.5 text-sm text-white/80 backdrop-blur hover:text-white"><Pencil size={13} /> or say something else</button>
               </motion.div>
             )}
           </AnimatePresence>
 
           {writing ? (
-            <form onSubmit={(e) => { e.preventDefault(); act(); }} className="glass flex items-end gap-2 rounded-3xl p-3">
-              <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); act(); } if (e.key === 'Escape') setWriting(false); }} rows={2} maxLength={1500} placeholder={`What does ${me.name.split(' ')[0]} say or do?`} className="max-h-32 min-h-[52px] flex-1 resize-none bg-transparent px-2 py-1.5 text-[16px] text-parchment placeholder:text-parchment/40 focus:outline-none" />
-              <button type="submit" disabled={!draft.trim()} className="rounded-full p-3.5 text-midnight disabled:opacity-30" style={{ background: mood.primary }} aria-label="Say it"><SendHorizontal size={18} /></button>
+            <form onSubmit={(e) => { e.preventDefault(); act(); }} className="vn-frame vn-panel flex items-end gap-2 rounded-3xl p-3">
+              <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); act(); } if (e.key === 'Escape') setWriting(false); }} rows={2} maxLength={1500} placeholder={`What does ${me.name.split(' ')[0]} say or do?`} className="max-h-32 min-h-[52px] flex-1 resize-none bg-transparent px-2 py-1.5 text-base text-parchment placeholder:text-parchment/40 focus:outline-none" />
+              <button type="submit" disabled={!draft.trim()} className="vn-choice rounded-full p-3.5 disabled:opacity-30" aria-label="Say it"><SendHorizontal size={18} /></button>
             </form>
           ) : (
-            <button type="button" onClick={advance} className="glass relative block w-full rounded-3xl px-5 pb-5 pt-6 text-left sm:px-7" aria-label="Continue">
+            <button type="button" onClick={advance} className="vn-frame vn-panel relative block w-full rounded-3xl px-5 pb-5 pt-7 text-left sm:px-7" aria-label="Continue">
               {nameTag && (
-                <span className="absolute -top-3.5 left-5 rounded-full px-3.5 py-1 font-serif text-[16px] text-midnight sm:left-7" style={{ background: current?.you ? me.color || '#f3e9d7' : mood.primary }}>{nameTag}</span>
+                <span className={`vn-plate absolute -top-4 left-4 z-10 py-1.5 pl-5 pr-7 text-base font-semibold sm:left-6 ${current?.you ? 'is-you' : ''}`}>{nameTag}</span>
               )}
-              <div className="min-h-[4.5rem] font-serif text-[1.2rem] leading-[1.6] text-parchment sm:text-[1.3rem]">
+              <div className="min-h-[4.5rem] text-base leading-relaxed text-white sm:text-lg">
                 {waiting || (!current && busy) ? (
                   <span className="inline-flex items-center gap-1.5 pt-2">
-                    {[0, 1, 2].map((d) => <motion.span key={d} className="h-1.5 w-1.5 rounded-full" style={{ background: mood.primary }} animate={{ opacity: [0.2, 1, 0.2] }} transition={{ duration: 1.2, repeat: Infinity, delay: d * 0.2 }} />)}
+                    {[0, 1, 2].map((d) => <motion.span key={d} className="h-1.5 w-1.5 rounded-full bg-rose" animate={{ opacity: [0.2, 1, 0.2] }} transition={{ duration: 1.2, repeat: Infinity, delay: d * 0.2 }} />)}
                   </span>
                 ) : current ? (
-                  <span className={current.speaker && !current.you ? '' : current.you ? 'italic text-parchment/85' : 'text-parchment/90'}><Rich text={typed} /></span>
+                  <span className={current.speaker && !current.you ? '' : current.you ? 'italic text-champagne/90' : 'italic text-white/85'}><Rich text={typed} /></span>
                 ) : null}
               </div>
               {error && <p className="mt-2 font-sans text-sm text-rose-300/90">{error}</p>}
               {current && !waiting && !atEnd && typedAll && (
-                <motion.span className="absolute bottom-3 right-5 text-parchment/50" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.6, repeat: Infinity }} aria-hidden>▾</motion.span>
+                <motion.span className="absolute bottom-3 right-5 text-rose" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.6, repeat: Infinity }} aria-hidden>▾</motion.span>
               )}
             </button>
           )}
@@ -445,12 +444,12 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
       <AnimatePresence>
         {panel === 'book' && (
           <motion.div className="fixed inset-0 z-40 overflow-y-auto bg-black/85 pb-24 pt-16 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="mx-auto max-w-2xl select-text px-5 font-serif text-[1.15rem] leading-[1.7] text-parchment/90 sm:px-8">
+            <div className="mx-auto max-w-2xl select-text px-5 text-lg leading-relaxed text-parchment/90 sm:px-8">
               <h2 className="mb-8 text-center text-3xl italic text-parchment">{story.bible.title}</h2>
               {story.turns.filter((t) => t.narration).map((t, i) => (
                 <section key={i} className="mb-8 space-y-3">
                   {t.actions?.length > 0 && <p className="border-l-2 pl-3 italic text-parchment/70" style={{ borderColor: mood.primary }}>{t.actions.map((a) => a.text).join(' / ')}</p>}
-                  {toBeats(t.narration, story.bible.cast, me.name, segmentNarration).map((b, k) => (
+                  {toBeats(t.narration, castOf(story), me.name, segmentNarration).map((b, k) => (
                     <p key={k}>{b.speaker ? <><span style={{ color: mood.primary }}>{b.speaker}:</span> <Rich text={b.text} /></> : <Rich text={b.text} />}</p>
                   ))}
                 </section>
@@ -464,12 +463,12 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
         {recap?.kind === 'meanwhile' && (
           <motion.div key="meanwhile" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-md" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label="Meanwhile">
             <motion.div initial={{ y: 20, scale: 0.97 }} animate={{ y: 0, scale: 1 }} className="w-full max-w-lg rounded-3xl border px-7 py-8 text-center" style={{ borderColor: `${mood.primary}44`, background: `linear-gradient(180deg, ${mood.bg[1]}f5, ${mood.bg[0]}fa)` }}>
-              <h2 className="font-serif text-3xl italic text-parchment">Meanwhile…</h2>
+              <h2 className="font-display text-3xl font-semibold text-parchment">Meanwhile…</h2>
               <ul className="mt-5 space-y-4 text-left">
                 {recap.items.slice(-4).map((m) => (
                   <li key={m.id} className="border-l-2 pl-4" style={{ borderColor: m.color || mood.primary }}>
-                    <p className="text-[11px] uppercase tracking-[0.2em]" style={{ color: m.color || mood.primary }}>{m.player}{m.place ? ` · ${m.place}` : ''}</p>
-                    <p className="mt-1 font-serif text-lg leading-snug text-parchment/85">{m.preview}</p>
+                    <p className="text-xs font-medium" style={{ color: m.color || mood.primary }}>{m.player}{m.place ? ` · ${m.place}` : ''}</p>
+                    <p className="mt-1 text-lg leading-snug text-parchment/85">{m.preview}</p>
                   </li>
                 ))}
               </ul>
@@ -480,8 +479,8 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
         {recap && recap.kind !== 'meanwhile' && (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-md" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label="Previously">
             <motion.div initial={{ y: 20, scale: 0.97 }} animate={{ y: 0, scale: 1 }} className="w-full max-w-lg rounded-3xl border px-7 py-8 text-center" style={{ borderColor: `${mood.primary}44`, background: `linear-gradient(180deg, ${mood.bg[1]}f5, ${mood.bg[0]}fa)` }}>
-              <h2 className="font-serif text-3xl italic text-parchment">Previously…</h2>
-              <p className="mt-4 font-serif text-lg leading-relaxed text-parchment/85">{recap.narration}</p>
+              <h2 className="font-display text-3xl font-semibold text-parchment">Previously…</h2>
+              <p className="mt-4 text-lg leading-relaxed text-parchment/85">{recap.narration}</p>
               <button type="button" onClick={() => { setRecap(null); setBeat(0); }} className="btn-lantern mt-7 rounded-full px-6 py-2.5 text-sm font-medium">Step back in</button>
             </motion.div>
           </motion.div>

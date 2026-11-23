@@ -53,7 +53,7 @@ export const MOODS = {
   },
   quietlyHappy: {
     key: 'quietlyHappy',
-    label: 'Quietly Happy',
+    label: 'Quietly happy',
     weather: 'morning sunbeams · drifting dust',
     icon: Sunrise,
     primary: '#ffd99a',

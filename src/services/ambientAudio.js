@@ -367,14 +367,6 @@ class AmbientEngine {
     });
   }
 
-  /** Quieten the soundscape while voices are reading, then bring it back. */
-  duck(on) {
-    if (!this.ctx || !this.master) return;
-    const now = this.ctx.currentTime;
-    this.master.gain.cancelScheduledValues(now);
-    this.master.gain.setTargetAtTime(on ? 0.3 : 0.85, now, 0.4);
-  }
-
   get playing() {
     return !!this.scene?.alive;
   }

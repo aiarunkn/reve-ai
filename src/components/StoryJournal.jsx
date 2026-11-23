@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Users, GitBranch, Footprints, MapPin, UserCircle, Trash2, UserPlus } from 'lucide-react';
 import { relKey, relationshipLabel } from '../services/storyStore';
+import { castOf } from '../shared/worldState';
 import ConsequenceChip from './ConsequenceChip';
 
 const TABS = [
@@ -29,8 +30,8 @@ export default function StoryJournal({ story, mood, places, portraits = [], onCl
       >
         <div className="flex items-center justify-between px-5 pt-5">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.3em]" style={{ color: mood.primary }}>journal</p>
-            <h2 className="font-serif text-2xl italic text-parchment">{story.bible.title}</h2>
+            <p className="text-xs font-medium text-parchment/50">Journal</p>
+            <h2 className="font-display text-2xl font-semibold text-parchment">{story.bible.title}</h2>
           </div>
           <button type="button" onClick={onClose} className="glass-btn rounded-full p-2 text-parchment/70" aria-label="Close journal"><X size={16} /></button>
         </div>
@@ -46,14 +47,14 @@ export default function StoryJournal({ story, mood, places, portraits = [], onCl
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           {tab === 'cast' && (
             <ul className="space-y-4">
-              {story.bible.cast.map((c, k) => {
+              {castOf(story).map((c, k) => {
                 const r = L.relationships[relKey(c.name, me.name)] || { score: 0, notes: [] };
                 return (
                   <li key={c.name} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     {portraits[k] && <img src={portraits[k]} alt={`Portrait of ${c.name}`} className="mb-3 aspect-[4/5] w-full rounded-xl object-cover" />}
                     <div className="flex items-baseline justify-between gap-2">
-                      <p className="font-serif text-xl text-parchment">{c.name}</p>
-                      <span className="text-[11px] uppercase tracking-wider" style={{ color: r.score >= 2 ? mood.primary : r.score <= -2 ? '#f0a0a8' : 'rgba(243,233,215,0.5)' }}>{relationshipLabel(r.score)}</span>
+                      <p className="font-display font-semibold text-xl text-parchment">{c.name}</p>
+                      <span className="text-xs font-medium" style={{ color: r.score >= 2 ? mood.primary : r.score <= -2 ? '#f0a0a8' : 'rgba(243,233,215,0.5)' }}>{relationshipLabel(r.score)}</span>
                     </div>
                     <p className="text-xs text-parchment/55">{c.role}</p>
                     <div className="relative mt-3 h-1.5 rounded-full bg-white/10">
@@ -71,7 +72,7 @@ export default function StoryJournal({ story, mood, places, portraits = [], onCl
           {tab === 'threads' && (
             <ul className="space-y-2">
               {[...L.threads].sort((a, b) => (a.status === b.status ? 0 : a.status === 'open' ? -1 : 1)).map((t, i) => (
-                <li key={i} className={`flex gap-2 font-serif text-lg leading-snug ${t.status === 'open' ? 'text-parchment/85' : 'text-parchment/35 line-through'}`}>
+                <li key={i} className={`flex gap-2 text-lg leading-snug ${t.status === 'open' ? 'text-parchment/85' : 'text-parchment/35 line-through'}`}>
                   <GitBranch size={14} className="mt-1.5 shrink-0" style={{ color: t.status === 'open' ? mood.primary : 'rgba(243,233,215,0.3)' }} />
                   {t.text}
                 </li>
@@ -89,7 +90,7 @@ export default function StoryJournal({ story, mood, places, portraits = [], onCl
                   </div>
                 </li>
               ))}
-              {!story.turns.some((t) => t.kind === 'turn') && <p className="font-serif italic text-parchment/45">Your choices will be written here.</p>}
+              {!story.turns.some((t) => t.kind === 'turn') && <p className=" italic text-parchment/45">Your choices will be written here.</p>}
             </ol>
           )}
 
@@ -99,7 +100,7 @@ export default function StoryJournal({ story, mood, places, portraits = [], onCl
                 <li key={i} className="flex gap-3">
                   {places[i] ? <img src={places[i]} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" /> : <div className="h-16 w-16 shrink-0 rounded-xl" style={{ background: `linear-gradient(135deg, ${mood.secondary}66, ${mood.bg[1]})` }} />}
                   <div>
-                    <p className="font-serif text-lg text-parchment">{p.name}{story.scene === i && <span className="ml-2 text-[10px] uppercase tracking-wider" style={{ color: mood.primary }}>you are here</span>}</p>
+                    <p className=" text-lg text-parchment">{p.name}{story.scene === i && <span className="ml-2 text-xs font-medium" style={{ color: mood.primary }}>you are here</span>}</p>
                     <p className="text-sm leading-snug text-parchment/60">{p.description}</p>
                   </div>
                 </li>
@@ -111,7 +112,7 @@ export default function StoryJournal({ story, mood, places, portraits = [], onCl
             <div className="space-y-3">
               {story.players.map((p, i) => (
                 <div key={p.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="flex items-center gap-2 font-serif text-xl text-parchment">{p.color && <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />}{p.name} {i === 0 && <span className="text-xs text-parchment/45">(you)</span>}</p>
+                  <p className="flex items-center gap-2 font-display font-semibold text-xl text-parchment">{p.color && <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />}{p.name} {i === 0 && <span className="text-xs text-parchment/45">(you)</span>}</p>
                   {p.look && <p className="mt-1 text-sm text-parchment/65">{p.look}</p>}
                   {p.want && <p className="mt-1 text-sm text-parchment/65">Wants: {p.want}</p>}
                   {p.description && <p className="mt-1 text-sm text-parchment/65">{p.description}</p>}

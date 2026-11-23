@@ -2,7 +2,7 @@
  * /api/_limits — per-day rate limits, so one viral post can't drain the Anthropic/OpenAI credits.
  * Files starting with "_" in /api are helpers, not endpoints.
  *
- * Call `enforce(req, kind)` before ever calling Claude/OpenAI/Blockade for that kind of work.
+ * Call `enforce(req, kind)` before ever calling Claude/OpenAI for that kind of work.
  * It returns { identity, ok } and, when ok is false, { status: 429, body } ready to send back.
  *
  * Kinds and defaults (signed-in / guest), overridable with the env JSON RATE_LIMITS, e.g.
@@ -13,14 +13,13 @@
 import { db, sharedConfigured } from './_db.js';
 import { identify } from './_auth.js';
 
-export const KINDS = ['turn', 'world', 'join', 'image', 'voice', 'recap'];
+export const KINDS = ['turn', 'world', 'join', 'image', 'recap'];
 
 const DEFAULTS = {
   turn: { signedIn: 150, guest: 15 },
   world: { signedIn: 6, guest: 1 },
   join: { signedIn: 10, guest: 2 },
   image: { signedIn: 60, guest: 10 },
-  voice: { signedIn: 200, guest: 0 },
   recap: { signedIn: 40, guest: 5 },
 };
 
@@ -29,7 +28,6 @@ const GLOBAL_DEFAULTS = {
   world: 2000,
   join: 2000,
   image: 8000,
-  voice: 2000,
   recap: 4000,
 };
 

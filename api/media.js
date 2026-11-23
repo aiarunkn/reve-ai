@@ -1,8 +1,8 @@
 /**
- * /api/media — scene art (OpenAI image model) and a slot for a paid voice service.
+ * /api/media — scene art (OpenAI image model) and real photos of places.
  *
- * POST { action: 'image', prompt, shape: 'landscape' | 'portrait' | 'square' } -> { image: <data URL> }
- * POST { action: 'voice', text, voice }                                       -> 501 until a provider is added
+ * POST { action: 'image', prompt, shape: 'landscape' | 'portrait' | 'square', refs?: [<data URL>] } -> { image: <data URL> }
+ *        refs: up to 3 reference pictures (e.g. character portraits) the new image must stay faithful to
  * POST { action: 'photo', queries: ['gothic library', ...] }                    -> { image: <data URL>, credit } | 404
  *
  * Photos of a place come from free photo libraries, never from scraped sites:
@@ -15,11 +15,7 @@
  *   OPENAI_IMAGE_MODEL   optional, default "gpt-image-2.5-flare" (fast everyday model).
  *   OPENAI_IMAGE_QUALITY optional, default "medium" ("low" is cheaper).
  *
- * Voices: the app speaks with the browser's built-in voices today. To upgrade, implement
- * `voice()` below with a voice provider and set VITE_VOICE_PROVIDER=server in the client.
- * (OpenAI's /v1/audio/speech models shut down on 2027-01-06, so they aren't used here.)
- *
- * "image" and "voice" are rate-limited per caller (see ./_limits.js); "photo" (free stock photo
+ * "image" is rate-limited per caller (see ./_limits.js); "photo" (free stock photo
  * libraries, not an AI call) is not.
  */
 import { enforce } from './_limits.js';
@@ -44,11 +40,6 @@ export default async function handler(req, res) {
       if (!ok) return send(res, status, limitBody);
       return send(res, 200, await image(body));
     }
-    if (body.action === 'voice') {
-      const { ok, status, body: limitBody } = await enforce(req, 'voice');
-      if (!ok) return send(res, status, limitBody);
-      return voice(res, body);
-    }
     if (body.action === 'photo') {
       const found = await photo(body);
       return found ? send(res, 200, found) : send(res, 404, { error: 'No photo found.' });
@@ -60,24 +51,58 @@ export default async function handler(req, res) {
   }
 }
 
-async function image({ prompt, shape = 'landscape' }) {
+const MAX_REFS = 3;
+
+/** Reference pictures as uploadable files; anything that isn't a small image data URL is rejected. */
+function refFiles(refs) {
+  if (refs == null) return [];
+  if (!Array.isArray(refs) || refs.length > MAX_REFS) throw httpError(400, `Up to ${MAX_REFS} reference images.`);
+  return refs.map((ref, i) => {
+    const m = typeof ref === 'string' && ref.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
+    if (!m) throw httpError(400, `Reference ${i + 1} is not an image data URL.`);
+    return new Blob([Buffer.from(m[2], 'base64')], { type: m[1] });
+  });
+}
+
+async function image({ prompt, shape = 'landscape', refs }) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw httpError(501, 'not-configured');
   if (!prompt || typeof prompt !== 'string') throw httpError(400, 'Missing prompt.');
+  const files = refFiles(refs);
 
-  const r = await fetch('https://api.openai.com/v1/images/generations', {
+  const params = {
+    model: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-flare',
+    prompt: prompt.slice(0, 3500),
+    size: SIZES[shape] || SIZES.landscape,
+    quality: process.env.OPENAI_IMAGE_QUALITY || 'medium',
+    output_format: 'jpeg',
+    output_compression: 82,
+    n: 1,
+  };
+  const generate = () => fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-flare',
-      prompt: prompt.slice(0, 3500),
-      size: SIZES[shape] || SIZES.landscape,
-      quality: process.env.OPENAI_IMAGE_QUALITY || 'medium',
-      output_format: 'jpeg',
-      output_compression: 82,
-      n: 1,
-    }),
+    body: JSON.stringify(params),
   });
+  let r;
+  if (files.length) {
+    // with references, the edits endpoint paints a new picture that keeps those people looking the same
+    const form = new FormData();
+    for (const [k, v] of Object.entries(params)) form.append(k, String(v));
+    files.forEach((f, i) => form.append('image[]', f, `ref${i}.${f.type.split('/')[1]}`));
+    form.append('input_fidelity', 'high');
+    r = await fetch('https://api.openai.com/v1/images/edits', { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form });
+    if (r.status === 400) {
+      // the model may not take references (or one of the options): fall back to words alone, unless it was a safety refusal
+      const err = await r.clone().json().catch(() => ({}));
+      if (!/safety|policy/i.test(err.error?.message || '')) {
+        console.warn('[media] references not accepted, painting from the prompt alone:', err.error?.message);
+        r = await generate();
+      }
+    }
+  } else {
+    r = await generate();
+  }
   const json = await r.json().catch(() => ({}));
   if (!r.ok) throw httpError(r.status === 400 && /safety|policy/i.test(json.error?.message || '') ? 422 : r.status, json.error?.message || `Image service responded ${r.status}`);
   const b64 = json.data?.[0]?.b64_json;
@@ -144,11 +169,6 @@ async function photo({ queries }) {
   return null;
 }
 
-/** Placeholder for a paid voice provider: return audio bytes (e.g. audio/mpeg) for `text` in `voice`. */
-function voice(res) {
-  return send(res, 501, { error: 'not-configured', message: 'No voice provider is set up yet; the app uses browser voices.' });
-}
-
 function send(res, code, body) {
   res.statusCode = code;
   res.setHeader('Content-Type', 'application/json');
@@ -164,7 +184,7 @@ async function readJson(req) {
   let size = 0;
   for await (const c of req) {
     size += c.length;
-    if (size > 1024 * 1024) throw httpError(413, 'Request too large.');
+    if (size > 2 * 1024 * 1024) throw httpError(413, 'Request too large.');
     chunks.push(c);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');

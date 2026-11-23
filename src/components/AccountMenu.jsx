@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { LogOut, User } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { currentUser, onAuthChange, signOut } from '../services/authClient';
 
-/** Signed-in email + sign out, in a corner of the map. A guest sees a small "Sign in" button instead. */
+/** Signed-in email + sign out, in the top bar. A guest sees a "Sign in" button instead. */
 export default function AccountMenu({ onSignIn }) {
   const [user, setUser] = useState(currentUser);
   const [open, setOpen] = useState(false);
@@ -11,11 +11,11 @@ export default function AccountMenu({ onSignIn }) {
   useEffect(() => onAuthChange(setUser), []);
 
   return (
-    <div className="fixed right-4 top-[max(1rem,env(safe-area-inset-top))] z-30">
+    <div className="relative">
       {user ? (
         <div className="relative">
           <button type="button" onClick={() => setOpen((v) => !v)} className="glass-btn flex items-center gap-2 rounded-full px-3 py-2 text-sm text-parchment/85" aria-haspopup="true" aria-expanded={open} aria-label="Account">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gold/20 font-serif text-xs font-medium text-gold">{(user.email[0] || '?').toUpperCase()}</span>
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose/25 text-xs font-semibold text-champagne">{(user.email[0] || '?').toUpperCase()}</span>
             <span className="hidden max-w-[10rem] truncate sm:inline">{user.email}</span>
           </button>
           <AnimatePresence>
@@ -30,8 +30,8 @@ export default function AccountMenu({ onSignIn }) {
           </AnimatePresence>
         </div>
       ) : (
-        <button type="button" onClick={onSignIn} className="glass-btn flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-parchment/75 hover:text-parchment" aria-label="Sign in">
-          <User size={15} /> Sign in
+        <button type="button" onClick={onSignIn} className="rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-parchment transition-colors hover:border-white/35">
+          Sign in
         </button>
       )}
     </div>

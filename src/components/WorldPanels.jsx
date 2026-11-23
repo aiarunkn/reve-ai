@@ -59,7 +59,7 @@ export function StoriesTab({ world, mood, scenes, onUpdate, onAsleep, onScene })
   return (
     <div className="h-full overflow-y-auto px-5 py-5">
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-        <p className="font-serif text-lg italic text-parchment">Ask {c.name} for a story</p>
+        <p className="text-lg font-medium text-parchment">Ask {c.name} for a story</p>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {[null, ...world.bible.scenes.map((_, i) => i)].map((i) => (
             <button
@@ -93,16 +93,16 @@ export function StoriesTab({ world, mood, scenes, onUpdate, onAsleep, onScene })
         {error && <p className="mt-2 text-sm text-rose-300/90">{error}</p>}
       </div>
 
-      <h3 className="mb-2 mt-6 text-[11px] uppercase tracking-[0.25em] text-parchment/45">Stories you’ve been told</h3>
-      {stories.length === 0 && <p className="font-serif italic text-parchment/45">None yet. The first one is always the strangest.</p>}
+      <h3 className="mb-3 mt-6 text-sm font-semibold text-parchment/80">Stories you’ve been told</h3>
+      {stories.length === 0 && <p className="text-sm text-parchment/50">No stories yet. Ask for one above.</p>}
       <ul className="space-y-2">
         {stories.map((s) => (
           <li key={s.id}>
             <button type="button" onClick={() => setReading(s)} className="flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-left transition-colors hover:border-gold/30">
               {s.sceneIndex != null && scenes[s.sceneIndex] ? <img src={scenes[s.sceneIndex]} alt="" className="h-11 w-11 rounded-lg object-cover" /> : <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/5"><BookOpen size={16} className="text-parchment/40" /></span>}
               <span className="min-w-0">
-                <span className="block truncate font-serif text-lg text-parchment">{s.title}</span>
-                <span className="text-[11px] text-parchment/45">{new Date(s.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{s.sceneIndex != null ? ` · ${world.bible.scenes[s.sceneIndex]?.name}` : ''}</span>
+                <span className="block truncate text-lg text-parchment">{s.title}</span>
+                <span className="text-xs text-parchment/45">{s.sceneIndex != null ? `${world.bible.scenes[s.sceneIndex]?.name}, ` : ''}{new Date(s.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
               </span>
             </button>
           </li>
@@ -142,9 +142,9 @@ function StoryReader({ story, image, mood, teller, onClose, onDelete }) {
             <div className="absolute inset-0 bg-gradient-to-t from-midnight via-transparent to-transparent" />
           </div>
         )}
-        <p className="mt-6 text-center text-[10px] uppercase tracking-[0.35em]" style={{ color: mood.primary }}>a story told by {teller}</p>
-        <h2 className="mt-2 text-center font-serif text-4xl italic leading-tight text-parchment text-glow">{story.title || '…'}</h2>
-        <div className="mt-8 space-y-5 font-serif text-[1.3rem] leading-[1.7] text-parchment/90">
+        <p className="mt-6 text-center text-sm font-medium" style={{ color: mood.primary }}>Told by {teller}</p>
+        <h2 className="mt-2 text-center font-display font-semibold text-4xl leading-tight text-parchment text-glow">{story.title || '…'}</h2>
+        <div className="mt-8 space-y-5 text-xl leading-relaxed text-parchment/90">
           {(story.text ?? story.body ?? '').split(/\n{2,}/).filter(Boolean).map((p, i) => (
             <motion.p key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>{p}</motion.p>
           ))}
@@ -162,16 +162,16 @@ export function WorldTab({ world, mood, scenes, onScene }) {
   const c = b.character;
   return (
     <div className="h-full space-y-6 overflow-y-auto px-5 py-5">
-      <p className="font-serif text-xl italic leading-relaxed text-parchment/85">{b.essence}</p>
+      <p className="text-lg leading-relaxed text-parchment/85">{b.essence}</p>
       <section>
-        <h3 className="mb-2 text-[11px] uppercase tracking-[0.25em] text-parchment/45">Places</h3>
+        <h3 className="mb-3 text-sm font-semibold text-parchment/80">Places</h3>
         <ul className="space-y-2">
           {b.scenes.map((s, i) => (
             <li key={i}>
               <button type="button" onClick={() => onScene(i)} className="flex w-full gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-left transition-colors hover:border-gold/30">
                 {scenes[i] && <img src={scenes[i]} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />}
                 <span>
-                  <span className="block font-serif text-lg text-parchment">{s.name}</span>
+                  <span className="block text-lg text-parchment">{s.name}</span>
                   <span className="block text-sm leading-snug text-parchment/60">{s.description}</span>
                 </span>
               </button>
@@ -184,21 +184,21 @@ export function WorldTab({ world, mood, scenes, onScene }) {
           <div className="flex items-center gap-3">
             <Avatar name={c.name} mood={mood} size={48} />
             <div>
-              <p className="font-serif text-2xl text-parchment">{c.name}</p>
+              <p className="font-display font-semibold text-2xl text-parchment">{c.name}</p>
               <p className="text-xs text-parchment/55">{c.role}</p>
             </div>
           </div>
           <p className="mt-3 text-sm leading-relaxed text-parchment/75">{c.appearance}</p>
           <p className="mt-2 text-sm leading-relaxed text-parchment/75">{c.personality}</p>
-          <p className="mt-3 text-xs italic text-parchment/40">They have a secret. You’ll have to earn it.</p>
+          <p className="mt-3 text-xs text-parchment/50">They have a secret. You’ll have to earn it.</p>
         </section>
       )}
       {b.lore?.length > 0 && (
         <section>
-          <h3 className="mb-2 text-[11px] uppercase tracking-[0.25em] text-parchment/45">Small truths of this world</h3>
+          <h3 className="mb-3 text-sm font-semibold text-parchment/80">Small truths of this world</h3>
           <ul className="space-y-2">
             {b.lore.map((l, i) => (
-              <li key={i} className="flex gap-2 font-serif text-lg leading-snug text-parchment/80"><Sparkles size={14} className="mt-1.5 shrink-0" style={{ color: mood.primary }} />{l}</li>
+              <li key={i} className="flex gap-2 text-lg leading-snug text-parchment/80"><Sparkles size={14} className="mt-1.5 shrink-0" style={{ color: mood.primary }} />{l}</li>
             ))}
           </ul>
         </section>
@@ -222,23 +222,23 @@ export function MemoryTab({ world, mood, onUpdate, reflecting }) {
   return (
     <div className="h-full space-y-6 overflow-y-auto px-5 py-5">
       <section>
-        <h3 className="mb-3 text-[11px] uppercase tracking-[0.25em] text-parchment/45">You and {c.name}</h3>
+        <h3 className="mb-3 text-sm font-semibold text-parchment/80">You and {c.name}</h3>
         <div className="flex gap-1.5">
           {STAGE_ORDER.map((s, i) => (
             <div key={s} className="h-1.5 flex-1 rounded-full" style={{ background: i <= stage ? mood.primary : 'rgba(255,255,255,0.1)', boxShadow: i === stage ? `0 0 10px ${mood.glow}` : 'none' }} />
           ))}
         </div>
-        <p className="mt-2 font-serif text-xl text-parchment">{STAGES[mem.relationship]?.label}</p>
-        <p className="text-xs text-parchment/50">{STAGES[mem.relationship]?.hint} · {mem.conversations || 0} conversations remembered{reflecting ? ' · remembering…' : ''}</p>
+        <p className="mt-2 font-display font-semibold text-xl text-parchment">{STAGES[mem.relationship]?.label}</p>
+        <p className="text-xs text-parchment/50">{STAGES[mem.relationship]?.hint} {mem.conversations || 0} {mem.conversations === 1 ? 'conversation' : 'conversations'} remembered.{reflecting ? ' Remembering…' : ''}</p>
       </section>
 
       <section>
-        <h3 className="mb-2 text-[11px] uppercase tracking-[0.25em] text-parchment/45">In {c.name}’s words</h3>
-        <p className="font-serif text-lg italic leading-relaxed text-parchment/80">{mem.summary || `${c.name} doesn’t know you yet. Talk a while, and they’ll begin to remember.`}</p>
+        <h3 className="mb-3 text-sm font-semibold text-parchment/80">In {c.name}’s words</h3>
+        <p className="text-base leading-relaxed text-parchment/80">{mem.summary || `${c.name} doesn’t know you yet. Talk a while, and they’ll begin to remember.`}</p>
       </section>
 
       <section>
-        <h3 className="mb-2 text-[11px] uppercase tracking-[0.25em] text-parchment/45">What they know about you</h3>
+        <h3 className="mb-3 text-sm font-semibold text-parchment/80">What they know about you</h3>
         {(mem.facts || []).length === 0 && <p className="text-sm text-parchment/45">Nothing yet.</p>}
         <ul className="space-y-1.5">
           {(mem.facts || []).map((f, i) => (
@@ -259,9 +259,9 @@ export function MemoryTab({ world, mood, onUpdate, reflecting }) {
 
       {(mem.growth || []).length > 0 && (
         <section>
-          <h3 className="mb-2 text-[11px] uppercase tracking-[0.25em] text-parchment/45">How they’ve changed</h3>
+          <h3 className="mb-3 text-sm font-semibold text-parchment/80">How they’ve changed</h3>
           <ul className="space-y-2">
-            {mem.growth.map((g, i) => <li key={i} className="font-serif text-lg italic leading-snug text-parchment/75">{g}</li>)}
+            {mem.growth.map((g, i) => <li key={i} className="text-base text-parchment/75">{g}</li>)}
           </ul>
         </section>
       )}

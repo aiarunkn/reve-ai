@@ -104,7 +104,7 @@ export default function WorldView({ world, onUpdate, onExit, onDelete, notify })
         <button type="button" onClick={onExit} className="glass-btn inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-parchment/85 hover:text-parchment">
           <ArrowLeft size={16} /> <span className="hidden sm:inline">World Map</span>
         </button>
-        <h1 className="min-w-0 truncate text-center font-serif text-2xl italic text-parchment text-glow sm:text-4xl lg:hidden">{world.bible.world_name}</h1>
+        <h1 className="min-w-0 truncate text-center font-display font-semibold text-2xl text-parchment text-glow sm:text-4xl lg:hidden">{world.bible.world_name}</h1>
         <button type="button" onClick={onDelete} className="glass-btn rounded-full p-2.5 text-parchment/50 hover:text-rose-200" aria-label="Delete this world" title="Delete this world">
           <Trash2 size={16} />
         </button>
@@ -123,25 +123,25 @@ export default function WorldView({ world, onUpdate, onExit, onDelete, notify })
             aria-pressed={i === scene}
           >
             {scenes[i] ? <img src={scenes[i]} alt="" className="h-12 w-16 object-cover lg:h-16 lg:w-24" /> : <div className="h-12 w-16 bg-white/5 lg:h-16 lg:w-24" />}
-            <span className="absolute inset-x-0 bottom-0 hidden truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3 text-left text-[10px] text-parchment/90 lg:block">{s.name}</span>
+            <span className="absolute inset-x-0 bottom-0 hidden truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3 text-left text-xs text-parchment/90 lg:block">{s.name}</span>
           </button>
         ))}
       </div>
 
       {/* title, tagline and where you are (wide screens) */}
       <div className="pointer-events-none absolute left-6 top-20 z-10 hidden max-w-md lg:block">
-        <h1 className="font-serif text-5xl italic leading-tight text-parchment text-glow">{world.bible.world_name}</h1>
-        <p className="mt-1 font-serif text-lg italic text-parchment/70">{world.bible.tagline}</p>
+        <h1 className="font-display font-semibold text-4xl leading-tight text-parchment text-glow">{world.bible.world_name}</h1>
+        <p className="mt-2 text-lg text-parchment/70">{world.bible.tagline}</p>
         <AnimatePresence mode="wait">
           <motion.p
             key={scene}
-            className="mt-8 font-serif text-lg italic leading-snug text-parchment/80"
+            className="mt-8 text-base text-parchment/80"
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.8 }}
           >
-            <span className="mb-1 block text-[11px] not-italic uppercase tracking-[0.25em]" style={{ color: mood.primary }}>{world.bible.scenes[scene]?.name}</span>
+            <span className="mb-1 block text-sm font-semibold" style={{ color: mood.primary }}>{world.bible.scenes[scene]?.name}</span>
             {world.bible.scenes[scene]?.description}
           </motion.p>
         </AnimatePresence>
@@ -157,10 +157,15 @@ export default function WorldView({ world, onUpdate, onExit, onDelete, notify })
         <div className="flex items-center gap-3 px-5 pt-4">
           <Avatar name={c.name} mood={mood} size={42} asleep={world.bible.asleep} />
           <div className="min-w-0 flex-1">
-            <p className="truncate font-serif text-xl text-parchment">{c.name}</p>
-            <p className="truncate text-[11px] text-parchment/50">
-              {world.bible.asleep ? 'asleep' : `${c.role} · ${STAGES[world.memory.relationship]?.label}`}
-              {reflecting ? ' · remembering…' : ''}
+            <p className="truncate font-display font-semibold text-xl text-parchment">{c.name}</p>
+            <p className="flex min-w-0 items-center gap-2 text-xs text-parchment/55">
+              {world.bible.asleep ? <span>Asleep</span> : (
+                <>
+                  <span className="truncate">{c.role}</span>
+                  <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 font-medium text-parchment/80">{STAGES[world.memory.relationship]?.label}</span>
+                </>
+              )}
+              {reflecting && <span className="shrink-0 text-champagne/80">Remembering…</span>}
             </p>
           </div>
         </div>
