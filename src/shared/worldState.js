@@ -19,6 +19,17 @@ export function newCode(random = Math.random) {
 export const normalizeCode = (s) => String(s || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, CODE_LENGTH);
 export const isCode = (s) => /^[A-Z]{6}$/.test(s || '');
 
+/**
+ * The next chapter's title if this record really ends a chapter, else null. Newer records say so with
+ * ends_chapter; older ones only had a title. Titles that read like notes are ignored either way.
+ */
+export function nextChapterTitle(record) {
+  const title = record?.chapter_end?.trim();
+  if (!title || record.ends_chapter === false) return null;
+  if (title.length > 60 || /continues|not (yet )?(over|ended)|no chapter/i.test(title)) return null;
+  return title;
+}
+
 export const relKey = (character, player) => `${character}::${player}`;
 
 export function freshLedger(bible) {
@@ -91,7 +102,8 @@ export function foldWorld(world, players, turns) {
     const r = t.record;
     if (!r || r.imported) return; // imported turns are already part of base.ledger
     ledger = applyLedger(ledger, r, i, names[t.player_id]);
-    if (r.chapter_end?.trim()) chapter = { n: chapter.n + 1, title: r.chapter_end.trim(), startedAt: i + 1 };
+    const next = nextChapterTitle(r);
+    if (next) chapter = { n: chapter.n + 1, title: next, startedAt: i + 1 };
   });
   return { ledger, chapter };
 }

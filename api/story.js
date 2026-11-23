@@ -207,7 +207,7 @@ async function begin({ premise, players = [], photos = [] }) {
 /* ------------------------------------------------------------------ */
 
 const Record = z.object({
-  scene: z.number().int().describe('Index of the place the scene is now in'),
+  place: z.string().describe('Name of the place the scene is now in, exactly as listed in PLACES. Stay in the same place unless the player clearly moved'),
   time: z.string().describe('In-world time after this turn'),
   choices: z.array(z.string()).describe('3 suggested replies or moves for Player 1, responding to the last beat, under 10 words each'),
   consequences: z.array(z.object({
@@ -242,10 +242,11 @@ const Record = z.object({
   present: z.array(z.string()).describe('Names of the cast members physically present at the end of the scene'),
   threads_opened: z.array(z.string()),
   threads_closed: z.array(z.string()).describe('Exact text of threads that were resolved'),
-  chapter_end: z.string().describe('If this turn ends a chapter, the title of the next chapter; otherwise empty'),
+  ends_chapter: z.boolean().describe('True only when this turn closes a chapter: a real turning point after several scenes. Almost always false'),
+  chapter_end: z.string().describe('When ends_chapter is true, the title of the next chapter, 1-6 words. Otherwise an empty string'),
 });
 
-const RECORD_TOOL = {
+const RECORD_TOOL_BASE = {
   name: 'record_turn',
   description: 'Record what this turn changed in the story: where we are, what time it is, who is present, lasting consequences, relationship changes, new canon facts (and which of them are core), any newly named characters (with a fixed visual ID and voice), changes to characters\' whereabouts, mood or knowledge, opened/closed threads, and three suggested next moves. Call it exactly once, after the narration.',
   strict: true,
@@ -253,9 +254,9 @@ const RECORD_TOOL = {
   input_schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['scene', 'time', 'choices', 'consequences', 'relationships', 'facts', 'core_facts', 'new_characters', 'character_states', 'present', 'threads_opened', 'threads_closed', 'chapter_end'],
+    required: ['place', 'time', 'choices', 'consequences', 'relationships', 'facts', 'core_facts', 'new_characters', 'character_states', 'present', 'threads_opened', 'threads_closed', 'ends_chapter', 'chapter_end'],
     properties: {
-      scene: { type: 'integer' },
+      place: { type: 'string' },
       time: { type: 'string' },
       choices: { type: 'array', items: { type: 'string' } },
       consequences: {
@@ -322,6 +323,7 @@ const RECORD_TOOL = {
       present: { type: 'array', items: { type: 'string' } },
       threads_opened: { type: 'array', items: { type: 'string' } },
       threads_closed: { type: 'array', items: { type: 'string' } },
+      ends_chapter: { type: 'boolean' },
       chapter_end: { type: 'string' },
     },
   },
@@ -397,6 +399,13 @@ function recentRounds(story) {
   return out;
 }
 
+/** record_turn, with the place limited to this story's own place names. */
+function recordTool(placeNames) {
+  const tool = structuredClone(RECORD_TOOL_BASE);
+  tool.input_schema.properties.place = { type: 'string', enum: placeNames };
+  return tool;
+}
+
 async function turn(res, body, identity) {
   let { story, actions } = body;
   let shared = null;
@@ -411,6 +420,7 @@ async function turn(res, body, identity) {
   if (!Array.isArray(actions) || !actions.some((a) => a?.text?.trim())) throw httpError(400, 'What do you do?');
   const act = actions.filter((a) => a?.text?.trim()).map((a) => `${a.player}: ${String(a.text).slice(0, 1500)}`).join('\n');
 
+  const placeNames = story.bible.places.map((p) => p.name);
   const stream = anthropic().beta.messages.stream({
     model: MODEL,
     max_tokens: 8000,
@@ -421,7 +431,7 @@ async function turn(res, body, identity) {
       { type: 'text', text: `${NARRATOR}\n\n${bibleBlock(story)}` },
       { type: 'text', text: ledgerBlock(story) },
     ],
-    tools: [RECORD_TOOL],
+    tools: [recordTool(placeNames)],
     tool_choice: { type: 'auto' },
     messages: [
       ...recentRounds(story),
@@ -444,8 +454,11 @@ async function turn(res, body, identity) {
     const block = message.content.find((b) => b.type === 'tool_use' && b.name === 'record_turn');
     if (block && stopReason !== 'max_tokens' && stopReason !== 'refusal') {
       const parsed = Record.safeParse(block.input);
-      if (parsed.success) record = parsed.data;
-      else console.warn('[story] record_turn failed validation', parsed.error.issues.slice(0, 3));
+      if (parsed.success) {
+        // the client still works in place indexes; an unknown name keeps you where you were
+        const i = placeNames.indexOf(parsed.data.place);
+        record = { ...parsed.data, scene: i >= 0 ? i : story.scene ?? 0 };
+      } else console.warn('[story] record_turn failed validation', parsed.error.issues.slice(0, 3));
     }
   } catch (err) {
     if (err instanceof Anthropic.APIError) throw err;

@@ -4,7 +4,7 @@
  * Shaped for several players: every turn is a round with one action per player.
  */
 import { getAsset, putAsset, deleteAssetKinds } from './assetStore';
-import { applyLedger, relKey, freshLedger } from '../shared/worldState';
+import { applyLedger, relKey, freshLedger, nextChapterTitle } from '../shared/worldState';
 
 export { relKey };
 
@@ -89,7 +89,8 @@ const clampScene = (i, n) => (Number.isInteger(i) && i >= 0 && i < n ? i : null)
 /** Apply the narrator's record of a turn to the story (returns a new story object). */
 export function applyRecord(story, record, turnIndex) {
   if (!record) return story;
-  const chapter = record.chapter_end?.trim() ? { n: (story.chapter?.n || 1) + 1, title: record.chapter_end.trim(), startedAt: turnIndex + 1 } : story.chapter;
+  const next = nextChapterTitle(record);
+  const chapter = next ? { n: (story.chapter?.n || 1) + 1, title: next, startedAt: turnIndex + 1 } : story.chapter;
   return {
     ...story,
     scene: clampScene(record.scene, story.bible.places.length) ?? story.scene,
