@@ -41,7 +41,6 @@ export const STARTER_BIBLE = {
       wants: 'To find the Vanishing Map before anyone else, to prove his family wrong about him.',
       secret: 'He was the last student to sign the archive register before the map vanished.',
       bond: 'Rival since first year; keeps turning up wherever you go.',
-      voice_tone: 'low',
     },
     {
       name: 'Isla Brennan',
@@ -52,7 +51,6 @@ export const STARTER_BIBLE = {
       wants: 'For you to finally trust her with whatever you’re hiding.',
       secret: 'She has been sneaking out after curfew to meet someone at the Lake Steps.',
       bond: 'Your best friend; worried about you lately.',
-      voice_tone: 'high',
     },
     {
       name: 'Professor Odalys Wren',
@@ -63,7 +61,6 @@ export const STARTER_BIBLE = {
       wants: 'The map back before the headmistress notices it is gone.',
       secret: 'She knew your family, and why the archive was sealed years ago.',
       bond: 'Has been watching you with unusual interest.',
-      voice_tone: 'medium',
     },
   ],
   threads: [

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { X, ArrowRight } from 'lucide-react';
 import { PLAYER_COLORS, CODE_LENGTH, normalizeCode, isCode } from '../shared/worldState';
 import { peekWorld, joinShared, SharedNotConfigured } from '../services/sharedClient';
+import { RateLimited } from '../services/authClient';
 import { getMood } from '../data/moods';
 
 const NAME_KEY = 'reve-ai:my-name';
@@ -17,7 +18,7 @@ export function CodeBoxes({ value, onChange, autoFocus, size = 'lg' }) {
       {Array.from({ length: CODE_LENGTH }, (_, i) => {
         const active = focused && (i === value.length || (i === CODE_LENGTH - 1 && value.length === CODE_LENGTH));
         return (
-          <span key={i} className={`${box} flex items-center justify-center rounded-xl border bg-midnight/60 font-serif text-parchment transition-colors ${active ? 'border-gold shadow-[0_0_18px_-4px_rgba(245,184,90,0.7)]' : 'border-white/15'}`}>
+          <span key={i} className={`${box} flex items-center justify-center rounded-xl border bg-midnight/60 text-parchment transition-colors ${active ? 'border-gold shadow-[0_0_18px_-4px_rgba(245,184,90,0.7)]' : 'border-white/15'}`}>
             {value[i] || ''}
           </span>
         );
@@ -67,7 +68,7 @@ export function ColorPicker({ value, onChange, taken = [] }) {
  * Join a friend's world: code → name and color → you wake up inside.
  * As quick as joining a room in Among Us; the narrator writes your arrival.
  */
-export default function JoinWorld({ open, initialCode = '', onClose, onJoined, onWeave }) {
+export default function JoinWorld({ open, initialCode = '', onClose, onJoined, onWeave, onRateLimited }) {
   const [code, setCode] = useState('');
   const [world, setWorld] = useState(null); // what the code opens
   const [name, setName] = useState(lastName);
@@ -114,6 +115,7 @@ export default function JoinWorld({ open, initialCode = '', onClose, onJoined, o
       onJoined(view);
     } catch (err) {
       setError(err.message || 'Couldn’t join. Try again?');
+      if (err instanceof RateLimited) onRateLimited?.(err);
     } finally {
       onWeave?.(null);
       setBusy(false);
@@ -135,7 +137,7 @@ export default function JoinWorld({ open, initialCode = '', onClose, onJoined, o
             style={mood ? { boxShadow: `0 0 80px -20px ${mood.primary}` } : undefined}
           >
             <button type="button" onClick={onClose} className="absolute right-4 top-4 rounded-full p-2 text-parchment/50 hover:text-parchment" aria-label="Close"><X size={18} /></button>
-            <h2 className="font-serif text-3xl italic text-parchment text-glow">Join a dream</h2>
+            <h2 className="font-display text-3xl font-semibold text-parchment">Join a shared story</h2>
             <p className="mt-1.5 text-sm text-parchment/55">Type the code your friend sent you.</p>
 
             <div className="mt-6"><CodeBoxes value={code} onChange={setCode} autoFocus={!initialCode} /></div>
@@ -143,8 +145,8 @@ export default function JoinWorld({ open, initialCode = '', onClose, onJoined, o
             <AnimatePresence mode="wait">
               {world ? (
                 <motion.div key="world" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mt-6">
-                  <p className="font-serif text-2xl text-parchment">{world.title}</p>
-                  <p className="mt-1 font-serif italic text-parchment/60">{world.tagline}</p>
+                  <p className="font-display font-semibold text-2xl text-parchment">{world.title}</p>
+                  <p className="mt-1 italic text-parchment/60">{world.tagline}</p>
                   {here.length > 0 && (
                     <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-parchment/55">
                       {here.slice(0, 6).map((p) => <span key={p.name} className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} title={p.name} />)}
@@ -159,7 +161,7 @@ export default function JoinWorld({ open, initialCode = '', onClose, onJoined, o
                     maxLength={40}
                     placeholder="Your name in this world"
                     aria-label="Your name"
-                    className="mt-6 w-full rounded-2xl border border-white/15 bg-midnight/60 px-4 py-3 text-center font-serif text-xl text-parchment placeholder:text-parchment/35 focus:border-gold/60 focus:outline-none"
+                    className="mt-6 w-full rounded-2xl border border-white/15 bg-midnight/60 px-4 py-3 text-center text-xl text-parchment placeholder:text-parchment/35 focus:border-gold/60 focus:outline-none"
                   />
                   <div className="mt-4"><ColorPicker value={color} onChange={setColor} taken={here.map((p) => p.color)} /></div>
                   <input
@@ -170,7 +172,7 @@ export default function JoinWorld({ open, initialCode = '', onClose, onJoined, o
                     aria-label="Who are you in this world (optional)"
                     className="mt-4 w-full rounded-2xl border border-white/10 bg-transparent px-4 py-2.5 text-center text-sm text-parchment placeholder:text-parchment/35 focus:border-gold/40 focus:outline-none"
                   />
-                  <button type="submit" disabled={!name.trim() || busy} className="btn-lantern mt-6 inline-flex items-center gap-2 rounded-full px-7 py-3 text-[15px] font-medium disabled:opacity-40 disabled:[animation:none]">
+                  <button type="submit" disabled={!name.trim() || busy} className="btn-lantern mt-6 inline-flex items-center gap-2 rounded-full px-7 py-3 text-base font-medium disabled:opacity-40 disabled:[animation:none]">
                     {busy ? 'Waking up…' : <>Wake up inside <ArrowRight size={16} /></>}
                   </button>
                 </motion.div>

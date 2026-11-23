@@ -2,6 +2,8 @@
  * Browser client for /api/reve (see api/reve.js). The API key never touches the browser.
  * Every call throws NotConfiguredError when the server has no ANTHROPIC_API_KEY yet.
  */
+import { authHeaders, RateLimited } from './authClient';
+
 const ENDPOINT = import.meta.env.VITE_REVE_ENDPOINT || '/api/reve';
 
 export class NotConfiguredError extends Error {
@@ -14,11 +16,12 @@ export class NotConfiguredError extends Error {
 async function post(body, signal) {
   const res = await fetch(ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(body),
     signal,
   });
   if (res.status === 501 || res.status === 404) throw new NotConfiguredError();
+  if (res.status === 429) throw new RateLimited(await res.json().catch(() => ({})));
   if (!res.ok) {
     const json = await res.json().catch(() => ({}));
     throw new Error(json.error || `Request failed (${res.status})`);

@@ -93,7 +93,7 @@ export default function WorldChat({ world, mood, onUpdate, onScene, onAsleep }) 
       <div ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
         {asleep && (
           <div className="rounded-2xl border border-gold/20 bg-white/[0.03] p-4 text-sm text-parchment/75">
-            <p className="flex items-center gap-2 font-serif text-lg italic text-parchment"><Moon size={16} className="text-gold" /> This world is still asleep.</p>
+            <p className="flex items-center gap-2 text-lg text-parchment"><Moon size={16} className="text-gold" /> This world is still asleep.</p>
             <p className="mt-2">Its scenes are painted, but its inhabitant needs a mind to wake up. Add an <code className="rounded bg-white/10 px-1">ANTHROPIC_API_KEY</code> on the server (on Vercel: Settings → Environment Variables, then redeploy), and they’ll be here the next time you visit.</p>
           </div>
         )}
@@ -103,8 +103,8 @@ export default function WorldChat({ world, mood, onUpdate, onScene, onAsleep }) 
             <p
               className={`max-w-[85%] whitespace-pre-wrap leading-relaxed ${
                 m.role === 'user'
-                  ? 'rounded-2xl rounded-br-md bg-white/10 px-4 py-2.5 text-[15px] text-parchment/90'
-                  : 'pt-1 font-serif text-[1.15rem] text-parchment'
+                  ? 'rounded-2xl rounded-br-md bg-white/10 px-4 py-2.5 text-base text-parchment/90'
+                  : 'pt-1 text-lg text-parchment'
               }`}
             >
               <Rich text={m.content} />
@@ -115,7 +115,7 @@ export default function WorldChat({ world, mood, onUpdate, onScene, onAsleep }) 
           {streaming !== null && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex gap-3">
               <Avatar name={c.name} mood={mood} size={30} />
-              <p className="max-w-[85%] whitespace-pre-wrap pt-1 font-serif text-[1.15rem] leading-relaxed text-parchment">
+              <p className="max-w-[85%] whitespace-pre-wrap pt-1 text-lg leading-relaxed text-parchment">
                 {streaming ? <Rich text={streaming} /> : (
                   <span className="inline-flex gap-1 pt-2" aria-label={`${c.name} is thinking`}>
                     {[0, 1, 2].map((d) => (
@@ -139,7 +139,7 @@ export default function WorldChat({ world, mood, onUpdate, onScene, onAsleep }) 
           maxLength={2000}
           disabled={asleep}
           placeholder={asleep ? `${c.name} is asleep…` : `Say something to ${c.name}…`}
-          className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-white/10 bg-midnight/50 px-4 py-2.5 text-[15px] text-parchment placeholder:text-parchment/35 focus:border-gold/50 focus:outline-none disabled:opacity-50"
+          className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-white/10 bg-midnight/50 px-4 py-2.5 text-base text-parchment placeholder:text-parchment/35 focus:border-gold/50 focus:outline-none disabled:opacity-50"
         />
         <button type="submit" disabled={!draft.trim() || streaming !== null || asleep} className="rounded-full p-3 text-midnight transition-opacity disabled:opacity-30" style={{ background: mood.primary }} aria-label="Send">
           <SendHorizontal size={18} />

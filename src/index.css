@@ -1,17 +1,45 @@
 @import "tailwindcss";
 
 @theme {
-  --font-serif: "Cormorant Garamond", ui-serif, Georgia, serif;
+  /* Two families only: Cormorant Garamond for headings and titles, Inter for everything else. */
+  --font-display: "Cormorant Garamond", Georgia, serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-hand: "Caveat", "Segoe Print", cursive;
+  --font-serif: var(--font-display);
 
-  --color-midnight: #070b1f;
-  --color-night: #0f1433;
-  --color-dusk: #1b1840;
-  --color-lantern: #f5b85a;
-  --color-gold: #d9b36c;
-  --color-parchment: #f3e9d7;
+  /* One type scale (px): 12 · 14 · 16 · 18 · 20 · 24 · 30 · 36 · 60 · 72. Use only these steps. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.4;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.5;
+  --text-base: 1rem;
+  --text-base--line-height: 1.6;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.6;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.3;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 1.2;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 1.15;
+  --text-6xl: 3.75rem;
+  --text-6xl--line-height: 1.05;
+  --text-7xl: 4.5rem;
+  --text-7xl--line-height: 1;
+
+  --color-midnight: #12071f;
+  --color-night: #1d0b2e;
+  --color-dusk: #2a0f3d;
+  --color-lantern: #ff7ab5;
+  --color-gold: #f0c58a;
+  --color-parchment: #f7efe6;
+  --color-velvet: #160a24;
   --color-twilight: #6b4f9e;
+  --color-rose: #ff5fa2;
+  --color-orchid: #b05cff;
+  --color-plum: #2a0f3d;
+  --color-champagne: #ffe2a8;
 }
 
 html,
@@ -22,8 +50,8 @@ body,
 
 body {
   margin: 0;
-  background: #070b1f;
-  color: #f3e9d7;
+  background: #160a24;
+  color: #f7efe6;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -31,77 +59,58 @@ body {
 }
 
 ::selection {
-  background: rgba(245, 184, 90, 0.35);
-  color: #fff8ea;
+  background: rgba(255, 226, 168, 0.35);
+  color: #fff;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(217, 179, 108, 0.35) transparent;
+  scrollbar-color: rgba(255, 226, 168, 0.3) transparent;
 }
 
 .text-glow {
   text-shadow:
-    0 0 22px rgba(245, 184, 90, 0.45),
-    0 0 2px rgba(255, 232, 190, 0.6);
+    0 1px 12px rgba(22, 10, 36, 0.6);
 }
 
 .text-glow-soft {
   text-shadow: 0 0 14px rgba(200, 180, 255, 0.35);
 }
 
-/* The glowing "Plant a Memory Seed" lantern button */
+/* Primary action button (kept under its old name so every screen picks it up) */
 .btn-lantern {
   position: relative;
-  isolation: isolate;
-  background: radial-gradient(120% 160% at 50% 0%, #ffd58a 0%, #f5b85a 38%, #c9733a 100%);
-  color: #2a160a;
-  box-shadow:
-    0 0 0 1px rgba(255, 228, 170, 0.6) inset,
-    0 10px 30px -8px rgba(245, 160, 70, 0.7),
-    0 0 50px -6px rgba(245, 184, 90, 0.65);
-  animation: lantern-breathe 4.5s ease-in-out infinite;
-}
-.btn-lantern::before {
-  content: "";
-  position: absolute;
-  inset: -14px;
-  border-radius: inherit;
-  background: radial-gradient(closest-side, rgba(245, 184, 90, 0.35), transparent);
-  z-index: -1;
-  filter: blur(6px);
+  background: #f7efe6;
+  color: #1d0b2e;
+  font-weight: 600;
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  transition: background 0.2s ease, transform 0.15s ease;
 }
 .btn-lantern:hover {
-  animation-play-state: paused;
-  box-shadow:
-    0 0 0 1px rgba(255, 238, 200, 0.85) inset,
-    0 14px 40px -8px rgba(245, 160, 70, 0.85),
-    0 0 80px -4px rgba(245, 184, 90, 0.85);
+  background: #fff;
 }
-
-@keyframes lantern-breathe {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.12); }
+.btn-lantern:active {
+  transform: translateY(1px);
 }
 
 /* Gentle glassy panel used for modals & controls */
 .glass {
-  background: linear-gradient(180deg, rgba(27, 24, 64, 0.72), rgba(10, 12, 34, 0.82));
+  background: linear-gradient(180deg, rgba(42, 15, 61, 0.9), rgba(22, 10, 36, 0.94));
   backdrop-filter: blur(18px) saturate(1.2);
   -webkit-backdrop-filter: blur(18px) saturate(1.2);
-  border: 1px solid rgba(217, 179, 108, 0.18);
+  border: 1px solid rgba(255, 226, 168, 0.16);
 }
 
 .glass-btn {
-  background: rgba(15, 20, 51, 0.45);
+  background: rgba(29, 11, 46, 0.55);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(243, 233, 215, 0.14);
   transition: background 0.3s, border-color 0.3s, color 0.3s;
 }
 .glass-btn:hover {
-  background: rgba(27, 24, 64, 0.7);
-  border-color: rgba(217, 179, 108, 0.45);
+  background: rgba(42, 15, 61, 0.8);
+  border-color: rgba(255, 226, 168, 0.4);
 }
 
 /* Subtle paper grain overlay */
@@ -127,9 +136,124 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* ---------- visual-novel look: book covers, ribbons, glossy choices ---------- */
+
+/* A gradient hairline frame around any rounded box (set the radius on the element). */
+.vn-frame {
+  position: relative;
+  isolation: isolate;
+}
+.vn-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  border-radius: inherit;
+  background: linear-gradient(160deg, #ffe2a8, #ff5fa2 40%, #b05cff 75%, #ffe2a8);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Book cover title: warm metallic gradient text */
+.vn-title {
+  font-family: var(--font-display);
+  background: linear-gradient(180deg, #fff6e3 0%, #ffe2a8 45%, #f0a35e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 6px rgba(42, 15, 61, 0.9));
+}
+
+/* Dialogue panel */
+.vn-panel {
+  background: linear-gradient(180deg, rgba(48, 18, 70, 0.92), rgba(22, 8, 38, 0.95));
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 226, 168, 0.18);
+}
+
+/* Speaker name ribbon */
+.vn-plate {
+  font-family: var(--font-display);
+  background: linear-gradient(90deg, #ff5fa2, #b05cff);
+  color: #fff;
+  box-shadow: 0 6px 18px -6px rgba(255, 95, 162, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 50%, 100% 100%, 0 100%, 10px 50%);
+}
+.vn-plate.is-you {
+  background: linear-gradient(90deg, #ffe2a8, #f0a35e);
+  color: #2a0f3d;
+}
+
+/* Glossy choice button */
+.vn-choice {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #8a3fd1 0%, #5b1f99 55%, #3f1270 100%);
+  color: #fff;
+  border: 1px solid rgba(255, 226, 168, 0.55);
+  box-shadow: 0 10px 24px -10px rgba(176, 92, 255, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: transform 0.15s ease, filter 0.2s ease, box-shadow 0.2s ease;
+}
+.vn-choice::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 50% 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent);
+  pointer-events: none;
+}
+.vn-choice:hover {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px -10px rgba(255, 95, 162, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.vn-choice:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+/* Home page: the warm gold button, title glow and night panel from the original landing */
+.btn-gold {
+  position: relative;
+  isolation: isolate;
+  background: radial-gradient(120% 160% at 50% 0%, #ffd58a 0%, #f5b85a 38%, #c9733a 100%);
+  color: #2a160a;
+  box-shadow:
+    0 0 0 1px rgba(255, 228, 170, 0.6) inset,
+    0 10px 30px -8px rgba(245, 160, 70, 0.7),
+    0 0 50px -6px rgba(245, 184, 90, 0.65);
+  transition: box-shadow 0.3s ease, filter 0.3s ease;
+}
+.btn-gold:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow:
+    0 0 0 1px rgba(255, 238, 200, 0.85) inset,
+    0 14px 40px -8px rgba(245, 160, 70, 0.85),
+    0 0 80px -4px rgba(245, 184, 90, 0.85);
+}
+.text-glow-gold {
+  text-shadow:
+    0 0 22px rgba(245, 184, 90, 0.45),
+    0 0 2px rgba(255, 232, 190, 0.6);
+}
+.night-panel {
+  background: linear-gradient(180deg, rgba(27, 24, 64, 0.92), rgba(10, 12, 34, 0.95));
+  border: 1px solid rgba(217, 179, 108, 0.2);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .btn-lantern,
   .animate-glow-pulse {
     animation: none;
   }
+}
+
+:focus-visible {
+  outline: 2px solid #ffe2a8;
+  outline-offset: 2px;
+}
+/* text fields show focus on their own frame instead */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }

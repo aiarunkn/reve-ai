@@ -1,27 +1,23 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import WorldMap from './components/WorldMap';
-import PlantSeedModal from './components/PlantSeedModal';
 import CreateWorldModal from './components/CreateWorldModal';
 import WeavingOverlay from './components/WeavingOverlay';
 import JoinWorld from './components/JoinWorld';
+import SignInSheet from './components/SignInSheet';
+import AccountMenu from './components/AccountMenu';
 import { shareStory, leaveShared, identityFor, sharedCode, ensureIndexed } from './services/sharedClient';
-import { SEED_MEMORIES } from './data/seedMemories';
-import { loadMemories, saveMemories } from './services/storage';
+import { RateLimited } from './services/authClient';
 import { generateMemoryImage } from './services/memoryGenerator';
-import { ambient } from './services/ambientAudio';
-import { estimateDepth, drawFit, loadImage } from './services/depthEstimator';
+import { drawFit, loadImage } from './services/imageUtils';
 import { loadWorlds, saveWorlds, newMemory, saveScene, deleteWorldAssets } from './services/worldStore';
 import { dreamWorld, sleepingBible, NotConfiguredError } from './services/reveClient';
 import { loadStoryIndex, saveStory, deleteStory, savePlaceImage, storyFromBible } from './services/storyStore';
 import { beginStory } from './services/storyClient';
 import { paintNow, ImagesNotConfigured } from './services/storyArt';
-import { paintPanorama, startAIPanorama, waitForAIPanorama } from './services/panoramaService';
-import { putAsset, deleteAssets, emitAsset } from './services/assetStore';
 import { useHashRoute } from './hooks/useHashRoute';
+import { track, trackAppOpened } from './services/analytics';
 
-// the 3D room (three.js) only downloads when you first step inside a memory
-const MemoryRoom = lazy(() => import('./components/MemoryRoom'));
 const WorldView = lazy(() => import('./components/WorldView'));
 const StoryView = lazy(() => import('./components/StoryView'));
 
@@ -34,51 +30,35 @@ async function photoForAI(file) {
   return drawFit(await loadImage(file), 1024).toDataURL('image/jpeg', 0.85);
 }
 
-// AI panoramas take a minute or two, so they're painted in the background and
-// resumed after a reload (the job id is saved on the memory).
-const runningJobs = new Set();
-function trackPanorama(memoryId, jobId, updateMemory, notify) {
-  if (runningJobs.has(memoryId)) return;
-  runningJobs.add(memoryId);
-  waitForAIPanorama(jobId)
-    .then(async (blob) => {
-      await putAsset(memoryId, 'pano', blob);
-      emitAsset(memoryId, 'pano');
-      updateMemory(memoryId, { panoJob: null });
-      notify('✦ The AI finished painting the world around one of your memories.');
-    })
-    .catch((err) => {
-      console.warn('[panorama]', err);
-      updateMemory(memoryId, { panoJob: null });
-      notify(`The AI couldn’t paint the 360° world (${err.message}). The hand-painted one stays.`);
-    })
-    .finally(() => runningJobs.delete(memoryId));
-}
-
 export default function App() {
-  const [userMemories, setUserMemories] = useState(loadMemories);
-  const memories = useMemo(() => [...SEED_MEMORIES, ...userMemories], [userMemories]);
   const [route, go] = useHashRoute();
-  const [planting, setPlanting] = useState(false);
   const [imagining, setImagining] = useState(false);
   const [worlds, setWorlds] = useState(loadWorlds);
   const [stories, setStories] = useState(loadStoryIndex);
-  const [weaving, setWeaving] = useState(null); // { mood, preview, stage, progress }
-  const [soundOn, setSoundOn] = useState(false);
+  const [weaving, setWeaving] = useState(null); // { mood, preview, stage }
   const [toast, setToast] = useState('');
   const [joining, setJoining] = useState(null); // null, or the code being joined ('' = typing one)
   const [inviteFor, setInviteFor] = useState(null); // a world that was just opened up: show its code
+  const [signIn, setSignIn] = useState(null); // null, or { reason } while the sign-in sheet is open
   const mapScroll = useRef(0);
 
-  const roomIndex = route.view === 'room' ? memories.findIndex((m) => m.id === route.id) : -1;
-  const room = roomIndex >= 0 ? memories[roomIndex] : null;
+  const openSignIn = useCallback((reason = '') => setSignIn({ reason }), []);
+  /** Shows a friendly toast, and for a guest, opens the sign-in sheet. */
+  const handleRateLimit = useCallback((err) => {
+    setToast(err.message);
+    if (err.signIn) openSignIn(err.message);
+  }, [openSignIn]);
+
   const world = route.view === 'world' ? worlds.find((w) => w.id === route.id) || null : null;
   const storyEntry = route.view === 'story' ? stories.find((s) => s.id === route.id) || null : null;
 
-  // unknown room or world id in the URL → back to the map
+  // one "app opened" per visit, so returns can be counted
+  useEffect(() => { trackAppOpened(loadStoryIndex().length); }, []);
+
+  // unknown world or story id in the URL → back home
   useEffect(() => {
-    if ((route.view === 'room' && !room) || (route.view === 'world' && !world) || (route.view === 'story' && !storyEntry)) go({ view: 'map' }, { replace: true });
-  }, [route, room, world, storyEntry, go]);
+    if ((route.view === 'world' && !world) || (route.view === 'story' && !storyEntry)) go({ view: 'map' }, { replace: true });
+  }, [route, world, storyEntry, go]);
 
   // an invite link: straight in if this device is already in that world, otherwise join it
   useEffect(() => {
@@ -94,25 +74,11 @@ export default function App() {
     }
   }, [route, go]);
 
-  // soundscape follows the room you're in
-  useEffect(() => {
-    if (room && soundOn) ambient.play(room.mood);
-    else ambient.stop();
-  }, [room?.id, room?.mood, soundOn]);
-
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(''), 5000);
     return () => clearTimeout(t);
   }, [toast]);
-
-  const updateMemory = useCallback((id, patch) => {
-    setUserMemories((list) => {
-      const next = list.map((m) => (m.id === id ? { ...m, ...patch } : m));
-      saveMemories(next);
-      return next;
-    });
-  }, []);
 
   const updateWorld = useCallback((id, fn) => {
     setWorlds((list) => {
@@ -122,69 +88,8 @@ export default function App() {
     });
   }, []);
 
-  // resume AI panoramas that were still painting when the page was closed
-  useEffect(() => {
-    userMemories.forEach((m) => m.panoJob && trackPanorama(m.id, m.panoJob, updateMemory, setToast));
-  }, [userMemories, updateMemory]);
 
-  const enterRoom = useCallback(
-    (m) => {
-      if (route.view === 'map') mapScroll.current = window.scrollY;
-      go({ view: 'room', id: m.id });
-    },
-    [go, route.view]
-  );
-
-  const drift = useCallback(
-    (dir) => {
-      if (roomIndex < 0) return;
-      const next = memories[(roomIndex + dir + memories.length) % memories.length];
-      go({ view: 'room', id: next.id }, { replace: true });
-    },
-    [roomIndex, memories, go]
-  );
-  const prev = useCallback(() => drift(-1), [drift]);
-  const next = useCallback(() => drift(1), [drift]);
   const exit = useCallback(() => go({ view: 'map' }), [go]);
-
-  const plant = async ({ file, mood, message, title }) => {
-    const preview = URL.createObjectURL(file);
-    const id = `mem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    setPlanting(false);
-    setWeaving({ mood, preview, stage: 'paint' });
-    try {
-      const onFallback = (err) =>
-        setToast(`The AI painter couldn’t be reached (${err.message}) — painted by hand instead.`);
-      const [image] = await Promise.all([generateMemoryImage(file, mood, { onFallback }), wait(WEAVE_MIN_MS)]);
-
-      // AI depth: turns the flat photo into a 3D place you can stand in
-      setWeaving((w) => ({ ...w, stage: 'depth', progress: 0 }));
-      const depth = await estimateDepth(file, (value, stage) =>
-        setWeaving((w) => w && { ...w, stage: stage === 'thinking' ? 'depth-think' : 'depth', progress: value })
-      );
-      await putAsset(id, 'depth', depth);
-
-      // a hand-painted 360° world right away; the AI one (if configured) replaces it later
-      setWeaving((w) => ({ ...w, stage: 'world' }));
-      await putAsset(id, 'pano-local-v2', await paintPanorama(image, mood));
-      const job = await startAIPanorama(file, mood, title);
-
-      const memory = { id, title, message, mood, image, createdAt: new Date().toISOString(), panoJob: job?.jobId ?? null };
-      setUserMemories((list) => {
-        const next = [...list, memory];
-        if (!saveMemories(next)) setToast('Your browser’s storage is full — this memory will glow for this visit only.');
-        return next;
-      });
-      mapScroll.current = 0;
-      go({ view: 'room', id });
-    } catch (err) {
-      console.error(err);
-      setToast(err?.message || 'Something went wrong while weaving that memory.');
-    } finally {
-      setWeaving(null);
-      URL.revokeObjectURL(preview);
-    }
-  };
 
   // five photos + a description -> a world bible from Claude -> painted scenes -> step inside
   const imagine = async ({ files, description }) => {
@@ -259,11 +164,14 @@ export default function App() {
       await Promise.race([art, wait(75000)]);
       await saveStory(story);
       setStories(loadStoryIndex());
+      track('story_started', { story_id: id, photos: files.length, players: cast.length });
       mapScroll.current = 0;
       go({ view: 'story', id });
     } catch (err) {
       console.error(err);
-      setToast(err instanceof NotConfiguredError
+      track('story_start_failed', { reason: err instanceof RateLimited ? 'rate_limited' : err instanceof NotConfiguredError ? 'not_configured' : 'error' });
+      if (err instanceof RateLimited) handleRateLimit(err);
+      else setToast(err instanceof NotConfiguredError
         ? 'Stories need a narrator: add ANTHROPIC_API_KEY on the server (Vercel → Settings → Environment Variables), then redeploy.'
         : err?.message || 'Something went wrong while beginning that story.');
     } finally {
@@ -274,10 +182,16 @@ export default function App() {
 
   // open a solo story up to friends: it gets a code and moves to its shared home
   const openStory = async (story, color) => {
-    const view = await shareStory(story, color);
-    setStories(loadStoryIndex());
-    setInviteFor(view.id);
-    go({ view: 'story', id: view.id }, { replace: true });
+    try {
+      const view = await shareStory(story, color);
+      track('invite_created');
+      setStories(loadStoryIndex());
+      setInviteFor(view.id);
+      go({ view: 'story', id: view.id }, { replace: true });
+    } catch (err) {
+      if (err instanceof RateLimited) handleRateLimit(err);
+      throw err; // InviteSheet shows err.message and stops spinning
+    }
   };
 
   const removeStory = async () => {
@@ -308,23 +222,13 @@ export default function App() {
     go({ view: 'map' }, { replace: true });
   };
 
-  const release = () => {
-    if (!room || room.seed) return;
-    if (!window.confirm(`Release “${room.title}” from your sanctuary? This can’t be undone.`)) return;
-    const nextList = userMemories.filter((m) => m.id !== room.id);
-    saveMemories(nextList);
-    setUserMemories(nextList);
-    deleteAssets(room.id);
-    go({ view: 'map' }, { replace: true });
-  };
-
   return (
     <>
       <AnimatePresence mode="wait">
         {storyEntry ? (
           <motion.div key={storyEntry.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, filter: 'blur(10px)' }} transition={{ duration: 0.8 }} className="fixed inset-0">
             <Suspense fallback={<div className="fixed inset-0 bg-midnight" />}>
-              <StoryView storyId={storyEntry.id} onExit={() => { setStories(loadStoryIndex()); setInviteFor(null); exit(); }} onDelete={removeStory} notify={setToast} onShare={openStory} openInvite={inviteFor === storyEntry.id} />
+              <StoryView storyId={storyEntry.id} onExit={() => { setStories(loadStoryIndex()); setInviteFor(null); exit(); }} onDelete={removeStory} notify={setToast} onShare={openStory} openInvite={inviteFor === storyEntry.id} onRateLimited={handleRateLimit} />
             </Suspense>
           </motion.div>
         ) : world ? (
@@ -340,30 +244,6 @@ export default function App() {
               <WorldView world={world} onUpdate={updateWorld} onExit={exit} onDelete={deleteWorld} notify={setToast} />
             </Suspense>
           </motion.div>
-        ) : room ? (
-          <motion.div
-            key={room.id}
-            initial={{ opacity: 0, filter: 'blur(10px)' }}
-            animate={{ opacity: 1, filter: 'blur(0px)' }}
-            exit={{ opacity: 0, filter: 'blur(10px)' }}
-            transition={{ duration: 0.8, ease: 'easeInOut' }}
-            className="fixed inset-0"
-          >
-            <Suspense fallback={<div className="fixed inset-0 bg-midnight" />}>
-            <MemoryRoom
-              memory={room}
-              index={roomIndex}
-              total={memories.length}
-              onPrev={prev}
-              onNext={next}
-              onExit={exit}
-              onDelete={room.seed ? null : release}
-              soundOn={soundOn}
-              panoPending={!!room.panoJob}
-              onToggleSound={() => setSoundOn((s) => !s)}
-            />
-            </Suspense>
-          </motion.div>
         ) : (
           <motion.div
             key="map"
@@ -373,6 +253,7 @@ export default function App() {
             transition={{ duration: 0.8, ease: 'easeInOut' }}
           >
             <WorldMap
+              account={<AccountMenu onSignIn={() => openSignIn()} />}
               stories={stories}
               onEnterStory={(id) => { mapScroll.current = window.scrollY; go({ view: 'story', id }); }}
               onBegin={(premise) => beginNewStory({ premise })}
@@ -383,13 +264,14 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <PlantSeedModal open={planting} onClose={() => setPlanting(false)} onSubmit={plant} />
       <JoinWorld
         open={joining !== null}
         initialCode={joining || ''}
         onClose={() => setJoining(null)}
         onWeave={(mood) => setWeaving(mood ? { mood, stage: 'arrive' } : null)}
+        onRateLimited={handleRateLimit}
         onJoined={(view) => {
+          track('world_joined');
           setJoining(null);
           setStories(loadStoryIndex());
           mapScroll.current = 0;
@@ -397,7 +279,8 @@ export default function App() {
         }}
       />
       <CreateWorldModal open={imagining} onClose={() => setImagining(false)} onSubmit={imagine} />
-      <WeavingOverlay moodKey={weaving?.mood} preview={weaving?.preview} stage={weaving?.stage} progress={weaving?.progress} />
+      <SignInSheet open={!!signIn} reason={signIn?.reason} onClose={() => setSignIn(null)} />
+      <WeavingOverlay moodKey={weaving?.mood} preview={weaving?.preview} stage={weaving?.stage} />
 
       <AnimatePresence>
         {toast && (

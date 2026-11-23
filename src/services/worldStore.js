@@ -61,9 +61,9 @@ export function deleteWorldAssets(worldId) {
 }
 
 export const STAGES = {
-  stranger: { label: 'stranger', hint: 'just met' },
-  acquaintance: { label: 'acquaintance', hint: 'getting to know you' },
-  friend: { label: 'friend', hint: 'glad when you visit' },
-  confidant: { label: 'confidant', hint: 'trusts you with their longing' },
-  kindred: { label: 'kindred', hint: 'has told you their secret' },
+  stranger: { label: 'Stranger', hint: 'You just met.' },
+  acquaintance: { label: 'Acquaintance', hint: 'Getting to know you.' },
+  friend: { label: 'Friend', hint: 'Glad when you visit.' },
+  confidant: { label: 'Confidant', hint: 'Trusts you with what they long for.' },
+  kindred: { label: 'Kindred', hint: 'Has told you their secret.' },
 };

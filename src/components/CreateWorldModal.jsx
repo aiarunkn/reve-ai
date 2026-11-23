@@ -78,10 +78,8 @@ export default function CreateWorldModal({ open, onClose, onSubmit }) {
           >
             <div className="flex items-center justify-between px-6 pt-5 sm:px-8 sm:pt-7">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.35em] text-gold/70">
-                  Step {step + 1} of 2 · {step === 0 ? 'Your photos' : 'Your imagining'}
-                </p>
-                <h2 className="mt-1 font-serif text-3xl italic text-parchment">Imagine a World</h2>
+                <p className="text-sm text-parchment/55">Step {step + 1} of 2: {step === 0 ? 'your photos' : 'your idea'}</p>
+                <h2 className="mt-1 font-display text-3xl font-semibold text-parchment">Imagine a world</h2>
               </div>
               <button type="button" onClick={onClose} className="glass-btn rounded-full p-2 text-parchment/70 hover:text-parchment" aria-label="Close">
                 <X size={18} />
@@ -92,7 +90,7 @@ export default function CreateWorldModal({ open, onClose, onSubmit }) {
               <AnimatePresence mode="wait">
                 {step === 0 ? (
                   <motion.div key="photos" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                    <p className="mb-4 font-serif text-lg italic text-parchment/70">
+                    <p className="mb-4 text-lg text-parchment/75">
                       Choose up to five of your own photos. Each one becomes a place in your world.
                     </p>
                     <div
@@ -104,7 +102,7 @@ export default function CreateWorldModal({ open, onClose, onSubmit }) {
                       {photos.map((p, i) => (
                         <motion.div key={p.url} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="group relative aspect-[3/4] overflow-hidden rounded-xl">
                           <img src={p.url} alt={`Photo ${i + 1}`} className="h-full w-full object-cover" />
-                          <span className="absolute left-1.5 top-1.5 rounded-full bg-midnight/70 px-1.5 text-[10px] text-parchment/80">{i + 1}</span>
+                          <span className="absolute left-1.5 top-1.5 rounded-full bg-midnight/70 px-1.5 text-xs text-parchment/80">{i + 1}</span>
                           <button type="button" onClick={() => remove(i)} className="absolute right-1 top-1 rounded-full bg-midnight/70 p-1 text-parchment/80 opacity-100 transition-opacity hover:text-rose-200 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove photo ${i + 1}`}>
                             <X size={12} />
                           </button>
@@ -117,12 +115,12 @@ export default function CreateWorldModal({ open, onClose, onSubmit }) {
                           className="flex aspect-[3/4] flex-col items-center justify-center gap-1.5 rounded-xl border border-gold/20 text-parchment/50 transition-colors hover:border-gold/50 hover:text-lantern"
                         >
                           <ImagePlus size={22} strokeWidth={1.4} />
-                          <span className="text-[11px]">{photos.length ? 'Add' : 'Add photos'}</span>
+                          <span className="text-xs">{photos.length ? 'Add' : 'Add photos'}</span>
                         </button>
                       )}
                     </div>
                     <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
-                    <p className="mt-3 text-xs text-parchment/40">{photos.length} / {MAX_PHOTOS} · drag & drop works too</p>
+                    <p className="mt-3 text-xs text-parchment/40">{photos.length} of {MAX_PHOTOS} photos. You can also drag them here.</p>
                     {error && <p className="mt-2 text-sm text-rose-300/90">{error}</p>}
                   </motion.div>
                 ) : (
@@ -130,7 +128,7 @@ export default function CreateWorldModal({ open, onClose, onSubmit }) {
                     <div className="flex gap-1.5">
                       {photos.map((p) => <img key={p.url} src={p.url} alt="" className="h-12 w-10 rounded-md object-cover opacity-80" />)}
                     </div>
-                    <p className="font-serif text-lg italic text-parchment/70">Describe a person or a place you want to imagine.</p>
+                    <p className=" text-lg text-parchment/75">Describe a person or a place you want to imagine.</p>
                     <textarea
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
@@ -138,7 +136,7 @@ export default function CreateWorldModal({ open, onClose, onSubmit }) {
                       rows={5}
                       autoFocus
                       placeholder="Someone you miss, a place you dream about, a friend who doesn’t exist yet…"
-                      className="w-full resize-none rounded-2xl border border-white/10 bg-midnight/40 p-4 font-serif text-xl leading-snug text-parchment placeholder:italic placeholder:text-parchment/35 focus:border-gold/50 focus:outline-none"
+                      className="w-full resize-none rounded-2xl border border-white/10 bg-midnight/40 p-4 text-xl leading-snug text-parchment placeholder:text-parchment/35 focus:border-gold/50 focus:outline-none"
                     />
                     <div className="flex flex-wrap gap-2">
                       {IDEAS.map((idea) => (

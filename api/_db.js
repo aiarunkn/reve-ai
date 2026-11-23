@@ -39,10 +39,18 @@ export async function loadWorld(code) {
 }
 
 /** Load a world and confirm this device really is that player. */
-export async function loadAs({ code, playerId, token }) {
+export async function loadAs({ code, playerId, token, userId }) {
   const data = await loadWorld(code);
-  const me = data.players.find((p) => p.id === playerId);
+  let me = data.players.find((p) => p.id === playerId);
   if (!me || !token || me.token_hash !== hashToken(token)) throw httpError(403, 'This device isn’t in that world yet. Join it from the invite link.');
+  // a signed-in player whose device token predates their account: attach it, once
+  if (userId && !me.user_id) {
+    const r = await db().from('players').update({ user_id: userId }).eq('id', me.id).select('*').maybeSingle();
+    if (!r.error && r.data) {
+      me = r.data;
+      data.players = data.players.map((p) => (p.id === me.id ? me : p));
+    }
+  }
   return { ...data, me };
 }
 
@@ -63,7 +71,7 @@ export async function insertPlayer(code, player) {
 export function forBrowser({ world, players, turns }, myId) {
   return {
     world: { code: world.code, premise: world.premise, bible: world.bible, base: world.base, created_at: world.created_at },
-    players: players.map(({ token_hash, secret, want, about, ...p }) => (p.id === myId ? { ...p, secret, want, about } : p)),
+    players: players.map(({ token_hash, secret, want, about, user_id, ...p }) => (p.id === myId ? { ...p, secret, want, about } : p)),
     turns,
   };
 }

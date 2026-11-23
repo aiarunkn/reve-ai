@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react';
 /**
  * Tiny hash router:
  *   #/               world map
- *   #/room/<id>      a memory room
  *   #/world/<id>     an imagined world
  *   #/story/<id>     an interactive story
  *   #/w/<CODE>       an invite to a shared world
@@ -11,8 +10,11 @@ import { useCallback, useEffect, useState } from 'react';
 function parse() {
   const invite = window.location.hash.match(/^#\/w\/([A-Za-z]{6})\/?$/);
   if (invite) return { view: 'join', id: invite[1].toUpperCase() };
-  const m = window.location.hash.match(/^#\/(room|world|story)\/(.+)$/);
-  return m ? { view: m[1], id: decodeURIComponent(m[2]) } : { view: 'map' };
+  const m = window.location.hash.match(/^#\/(world|story)\/(.+)$/);
+  if (m) return { view: m[1], id: decodeURIComponent(m[2]) };
+  // anything else (including old #/room/<id> links) goes home, with a clean address
+  if (window.location.hash && window.location.hash !== '#/') window.history.replaceState(null, '', '#/');
+  return { view: 'map' };
 }
 
 export function useHashRoute() {

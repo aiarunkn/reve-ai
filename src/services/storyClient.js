@@ -3,13 +3,15 @@
  */
 import { NotConfiguredError } from './reveClient';
 import { slimStory } from './storyStore';
+import { authHeaders, RateLimited } from './authClient';
 
 const ENDPOINT = import.meta.env.VITE_STORY_ENDPOINT || '/api/story';
 const SEP = '\u001e';
 
 async function post(body, signal) {
-  const res = await fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+  const res = await fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify(body), signal });
   if (res.status === 501 || res.status === 404) throw new NotConfiguredError();
+  if (res.status === 429) throw new RateLimited(await res.json().catch(() => ({})));
   if (!res.ok) {
     const json = await res.json().catch(() => ({}));
     throw new Error(json.error || `Request failed (${res.status})`);

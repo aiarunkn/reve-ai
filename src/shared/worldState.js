@@ -19,6 +19,17 @@ export function newCode(random = Math.random) {
 export const normalizeCode = (s) => String(s || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, CODE_LENGTH);
 export const isCode = (s) => /^[A-Z]{6}$/.test(s || '');
 
+/**
+ * The next chapter's title if this record really ends a chapter, else null. Newer records say so with
+ * ends_chapter; older ones only had a title. Titles that read like notes are ignored either way.
+ */
+export function nextChapterTitle(record) {
+  const title = record?.chapter_end?.trim();
+  if (!title || record.ends_chapter === false) return null;
+  if (title.length > 60 || /continues|not (yet )?(over|ended)|no chapter/i.test(title)) return null;
+  return title;
+}
+
 export const relKey = (character, player) => `${character}::${player}`;
 
 export function freshLedger(bible) {
@@ -28,7 +39,17 @@ export function freshLedger(bible) {
     facts: [],
     threads: (bible?.threads || []).map((t) => ({ text: t, status: 'open', since: 0 })),
     relationships: {},
+    core: [], // facts that must never fall out of the narrator's view
+    characters: [], // people the narrator introduced after the bible was written
+    states: {}, // name -> { now, knows: [] }: where each character stands right now
   };
+}
+
+/** Everyone in the story: the bible's cast, then anyone introduced since (new ones get the next portrait index). */
+export function castOf(story) {
+  const base = story?.bible?.cast || [];
+  const names = new Set(base.map((c) => c.name.toLowerCase()));
+  return [...base, ...(story?.ledger?.characters || []).filter((c) => c?.name && !names.has(c.name.toLowerCase()))];
 }
 
 /** Fold one turn's record into the ledger. Returns a new ledger. */
@@ -46,7 +67,28 @@ export function applyLedger(L, record, turnIndex, actingPlayer) {
   for (const t of record.threads_opened || []) {
     if (t && !threads.some((x) => x.text.toLowerCase() === t.toLowerCase())) threads.push({ text: t, status: 'open', since: turnIndex });
   }
-  return { ...L, facts: [...L.facts, ...(record.facts || [])].slice(-80), threads, relationships };
+  const characters = [...(L.characters || [])];
+  for (const c of record.new_characters || []) {
+    if (c?.name && !characters.some((x) => x.name.toLowerCase() === c.name.toLowerCase())) characters.push({ ...c, since: turnIndex });
+  }
+  const states = { ...(L.states || {}) };
+  for (const st of record.character_states || []) {
+    if (!st?.character) continue;
+    const prev = states[st.character] || { now: '', knows: [] };
+    states[st.character] = {
+      now: st.now || prev.now,
+      knows: [...prev.knows, ...(st.learned || [])].filter(Boolean).filter((k, i, a) => a.indexOf(k) === i).slice(-8),
+    };
+  }
+  return {
+    ...L,
+    facts: [...L.facts, ...(record.facts || [])].slice(-80),
+    core: [...(L.core || []), ...(record.core_facts || [])].slice(-60),
+    threads,
+    relationships,
+    characters,
+    states,
+  };
 }
 
 const clampScene = (i, n) => (Number.isInteger(i) && i >= 0 && i < n ? i : null);
@@ -60,7 +102,8 @@ export function foldWorld(world, players, turns) {
     const r = t.record;
     if (!r || r.imported) return; // imported turns are already part of base.ledger
     ledger = applyLedger(ledger, r, i, names[t.player_id]);
-    if (r.chapter_end?.trim()) chapter = { n: chapter.n + 1, title: r.chapter_end.trim(), startedAt: i + 1 };
+    const next = nextChapterTitle(r);
+    if (next) chapter = { n: chapter.n + 1, title: next, startedAt: i + 1 };
   });
   return { ledger, chapter };
 }
@@ -76,6 +119,7 @@ export function previewOf(turn) {
 
 const asTurn = (row) => ({
   kind: row.kind,
+  present: row.record?.present || [],
   actions: row.actions || [],
   narration: row.narration || '',
   choices: row.record?.choices || [],

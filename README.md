@@ -23,10 +23,7 @@ live anywhere else, your decisions have lasting consequences, and the world reme
 - **Come back weeks later**: a "Previously…" recap, and the world has moved on a little while you were away.
 - **Illustrated**: places and character portraits are painted by an image model in one consistent style
   (cached once per story), and any passage can be illustrated with "Illustrate this moment".
-- **Read aloud**: a narrator voice plus a distinct voice per character (dialogue is split by speaker).
-  Today this uses the browser's built-in voices; a paid voice service can replace them in one place
-  (`api/media.js` → `voice`, and `VITE_VOICE_PROVIDER=server`).
-- **Sound**: a generative ambient soundscape for the story's feeling, which softens while voices read.
+- **Sound**: a generative ambient soundscape for the story's feeling.
 - **Journal**: the cast and where you stand with each of them, open threads, your choices next to their
   consequences, places, and players.
 - **Dream together**: tap the invite button in any story to get a 6-letter code (like a game lobby).
@@ -36,37 +33,39 @@ live anywhere else, your decisions have lasting consequences, and the world reme
 
 ### Also in Reve
 - **Worlds**: photos and a description become a place with one character you talk to, who remembers you.
-- **Memory rooms**: a photo, a feeling and a letter to your future self, which you can step inside in 3D.
 
 ```bash
 npm install
 npm run dev
 ```
 
-**Controls:** drag to look around · scroll or pinch to zoom · WASD to lean in · Q/E or arrow keys to turn ·
-click or tap a fragment to catch it · on phones, the phone button lets you look around by moving your phone.
-
 ## Structure
 
 ```
 src/
-  App.jsx                    routing (#/ and #/room/<id>), creation flow, sound state
+  App.jsx                    routing (#/, #/story/<id>, #/world/<id>, #/w/<CODE>), creation flows
   data/moods.js              the five feelings: palette, icon, weather particles
-  data/seedMemories.js       the three memories that exist on first load
+  shared/worldState.js       the story ledger and shared-world view, used by browser and server
+  services/storyStore.js     solo stories in IndexedDB (assetStore) + the story index
+  services/storyArt.js       place, portrait and moment pictures, shared-world picture cache
+  services/scenes.js         narration → visual-novel beats, place sounds
   services/memoryGenerator.js  photo → painterly image (local canvas pipeline + AI hook)
-  services/seedScenes.js     procedurally painted images for the seed memories
+  services/imageUtils.js     resizing photos before they're sent
   services/ambientAudio.js   Web Audio generative soundscapes, one per feeling
-  services/storage.js        localStorage persistence (memory text + painted photo)
-  services/assetStore.js     IndexedDB storage for depth maps and 360° worlds
-  services/depthEstimator.js AI depth (runs in workers/depthWorker.js)
-  services/panoramaService.js  painted 360° world + client for the AI world
-  data/fragments.js          splits the message into fragments and hides them
+  services/assetStore.js     IndexedDB storage for stories and pictures
+  services/worldStore.js     imagined worlds (localStorage + IndexedDB)
+  services/authClient.js     one Supabase client for the app: session, magic-link sign-in, authHeaders()
   components/
-    WorldMap.jsx, Landscape.jsx, MemoryPortal.jsx, Island.jsx
-    PlantSeedModal.jsx, WeavingOverlay.jsx
-    MemoryRoom.jsx (the game HUD), ExploreScene.jsx (three.js world), ParticleCanvas.jsx
-api/panorama.js              Vercel serverless function → Blockade Labs (keeps the key secret)
-api/shared.js, api/_db.js    shared worlds (Supabase); supabase/schema.sql creates the tables
+    WorldMap.jsx (home), StoryCover.jsx, StoryView.jsx, StoryJournal.jsx, InviteSheet.jsx
+    WorldView.jsx, WorldPanels.jsx, WorldChat.jsx, CreateWorldModal.jsx
+    WeavingOverlay.jsx, JoinWorld.jsx, SignInSheet.jsx, AccountMenu.jsx, ParticleCanvas.jsx
+api/story.js                 the narrator (Claude)
+api/reve.js                  world characters (Claude)
+api/media.js                 pictures (OpenAI) and photos of places (Pexels/Openverse)
+api/shared.js, api/_db.js, api/_art.js   shared worlds + the shared picture cache (Supabase)
+api/_auth.js, api/_limits.js  who's calling (account or guest) and per-day rate limits
+supabase/schema.sql, supabase/migrations/  creates/updates the tables, functions and Storage bucket
+test/                        node --test, mocking @supabase/supabase-js and @anthropic-ai/sdk
 ```
 
 ## Waking up the characters (Anthropic API key)
@@ -84,8 +83,9 @@ retries it on a fallback model (`fallbacks: "default"`).
 
 **Cost:** world creation reads up to 5 photos once; each chat message sends the character sheet, their
 memory and recent conversation (cached between turns). To spend less, switch `MODEL` in `api/reve.js`
-to `claude-haiku-5-5`. Before sharing the site publicly, add rate limiting or a login: anyone with the
-URL could otherwise run up your bill.
+to `claude-haiku-5-5`. Stories (`api/story.js`) are rate-limited per account/guest device — see **Login +
+rate limits** below. Worlds (`api/reve.js`, the photo-and-description feature above) aren't yet: before
+sharing that feature's URL publicly, add rate limiting or put it behind a login too.
 
 ## Shared worlds (Supabase)
 
@@ -104,15 +104,80 @@ ripple into your scene through rumours, objects and moods.
 
 How it fits together:
 - `src/shared/worldState.js` — pure functions both sides use: the shared ledger fold, one player's view, codes.
-- `api/shared.js` — `peek` / `create` (open up a solo story) / `join` (the narrator writes your arrival) / `load`.
+- `api/shared.js` — `peek` / `create` (open up a solo story) / `join` (the narrator writes your arrival) / `load`
+  / `art` / `claimArt` / `putArt` (the shared picture cache, below).
 - `api/story.js` → `turn` with `{ shared }` — loads the world on the server, narrates, saves the turn.
 - `src/services/sharedClient.js` — identity per world (localStorage), live channel, invite links (`#/w/CODE`).
 - Only the server touches the tables (row level security is on with no policies). The browser's anon key
-  is used only for Realtime broadcast/presence on the `world:<CODE>` channel.
-- Each device paints its own copy of a world's pictures (cached locally).
+  is used only for Realtime broadcast/presence on the `world:<CODE>` channel, and for signing in (below).
+- A world's places and portraits are painted once for everyone, not once per device — see **Shared
+  picture cache** below.
 
-**Cost safety:** anyone with a code can play in that world and spend narrator credits. Add rate limiting
-or a login before sharing codes publicly.
+**Cost safety:** every call is rate-limited per signed-in account or per guest device — see **Login +
+rate limits** below.
+
+### Shared picture cache
+
+When three friends are in a world, each place and portrait is painted once, not three times.
+
+- A private Storage bucket `world-art` holds the files, at `w/<CODE>/<kind>.<ext>` (`place0…7`,
+  `portrait0…7`, `moment<turn>`, plus `credit<i>` — a place's photo credit, stored as JSON the same way).
+- A table `world_art` tracks one row per `(world, kind)`: `painting` | `ready` | `failed`, who claimed it,
+  and where its file lives. The Postgres function `claim_art()` makes claiming atomic: if nobody has
+  started that picture, you get the claim; if someone did less than 3 minutes ago, you're told to wait
+  (a claim older than that can be reclaimed, in case a tab was closed mid-paint); if it's already `ready`,
+  you get a short-lived signed URL straight away.
+- `src/services/storyArt.js`: before painting any kind in a shared world, a device checks its own
+  IndexedDB cache, then asks the server for the ready pictures (`art`), then tries to `claimArt`. If it
+  gets the claim, it paints exactly as a solo story would, uploads the result (`putArt`), and caches it
+  locally. If told to wait, it polls every 5s for up to 90s, then falls back to painting its own local-only
+  copy (without uploading) so nobody is stuck looking at a gradient forever.
+- Opening a solo story up to friends (`shareStory`) offers any pictures that device already painted to
+  the new shared cache, so friends don't repaint them.
+- Image generation only counts against the `image` rate limit for the device that actually paints —
+  downloading a cached picture is free.
+
+## Login + rate limits (Supabase Auth)
+
+One viral post shouldn't be able to drain the Anthropic/OpenAI credits, and every player should have an
+account that can be emailed and billed later. Reve uses **Supabase Auth with email magic links — no
+passwords.** Guests can still try everything, up to a small daily allowance; past that, the app opens a
+"Keep dreaming — sign in with your email" sheet.
+
+Setup (uses the same Supabase project as **Shared worlds** above):
+
+1. Supabase → **Authentication → URL Configuration**: set the **Site URL** to your deployed URL (e.g.
+   `https://reve-ai-2rim.vercel.app`), and add it (plus `http://localhost:5173` for local dev) to
+   **Redirect URLs**.
+2. **Before launch, set up a custom SMTP provider** (Authentication → Settings → SMTP), for example
+   [Resend](https://resend.com). Supabase's built-in email sender is heavily rate-limited and will not
+   hold up once real people start signing in.
+3. **Vercel** → Settings → Environment Variables → `RATE_LIMIT_SALT` = any long random string (server
+   only). It's hashed together with a guest's IP so the app can rate-limit guests without ever storing a
+   raw IP address.
+4. Optional overrides (server only, JSON):
+   - `RATE_LIMITS` — per-kind, per-day limits. Defaults: `turn` 150/15 (signed-in/guest), `world` 6/1,
+     `join` 10/2, `image` 60/10, `recap` 40/5. Example:
+     `RATE_LIMITS={"turn":{"signedIn":300},"image":{"guest":5}}`
+   - `GLOBAL_DAILY_CAPS` — a per-kind ceiling across *everyone*, as a circuit breaker. Example:
+     `GLOBAL_DAILY_CAPS={"turn":20000}`.
+
+How it fits together:
+- `api/_auth.js` — `identify(req)`: a valid bearer token resolves to the signed-in account; anything
+  else (no token, or an invalid/expired one) is a guest, keyed by `sha256(ip + RATE_LIMIT_SALT)`. An
+  invalid token is never mistaken for someone else's account.
+- `api/_limits.js` — `enforce(req, kind)` checks and atomically consumes one unit of that day's quota
+  (via the `bump_usage()` Postgres function) *before* the matching Claude/OpenAI call, in
+  `api/story.js`, `api/shared.js` and `api/media.js`. Over the limit → `429 { error, kind, limit,
+  signIn }`; `signIn` is true only for a guest (a signed-in caller is already signed in).
+- `src/services/authClient.js` — one Supabase client for the whole app (session persisted, reused by
+  Realtime too), `sendMagicLink(email)`, and `authHeaders()`, sent as `Authorization: Bearer <token>` on
+  every `/api` call.
+- `SignInSheet.jsx` ("Keep dreaming") opens automatically for a guest on a 429; `AccountMenu.jsx` (map
+  corner) shows the signed-in email and a sign-out button.
+- Joining a shared world links the player row to the signed-in account (`players.user_id`); if you're
+  signed in but your device joined before you had an account, it's linked the next time the world loads.
+- `peek` and `load` stay free (no rate limit) — they don't call any AI model.
 
 ## Illustrations (OpenAI API key)
 
@@ -122,24 +187,34 @@ Without it, stories still work with painted photos and gradients. Each story dra
 portraits once (roughly 6–10 images), plus any moments you choose to illustrate. Set
 `OPENAI_IMAGE_QUALITY=low` to spend less.
 
-OpenAI's text-to-speech models (`tts-1`, `tts-1-hd`, `gpt-4o-mini-tts`) shut down on 2027-01-06, so voices
-use the browser for now.
+## Analytics (PostHog)
 
-## Turning on AI 360° worlds (Blockade Labs)
+Used to learn whether people come back. Off unless `VITE_POSTHOG_KEY` is set.
 
-1. Create a Skybox AI API key at blockadelabs.com. Image-to-panorama costs credits on a paid plan.
-2. **On Vercel:** Project → Settings → Environment Variables → add `BLOCKADE_API_KEY`, then redeploy.
-   **Locally:** create `.env.local` with `BLOCKADE_API_KEY=your-key` and restart `npm run dev`.
-3. Optional: `BLOCKADE_STYLE_ID` picks the art style. The default is 155; list the styles with
-   `GET https://backend.blockadelabs.com/api/v1/skybox/styles`.
+1. Create a free project at posthog.com and copy its **Project API key** (starts with `phc_`).
+2. Add `VITE_POSTHOG_KEY` to `.env.local` and to Vercel, then restart / redeploy. For an EU project, also
+   set `VITE_POSTHOG_HOST=https://eu.i.posthog.com`.
+3. In PostHog → Settings → Project, turn on **Discard client IP data**.
 
-New memories then ask the AI for a world in the background (usually a minute or two). It fades in
-when ready, even while you're inside, and resumes if you close the page. Starter memories and memories
-made without a key keep the painted world.
+Privacy: no cookies (an anonymous id in localStorage), no autocapture, no page views, no session
+recordings, Do Not Track respected, and never any story text, names, emails or invite codes.
+All of it lives in `src/services/analytics.js`.
 
-**Cost safety:** `/api/panorama` refuses requests from other websites, but anyone who scripts calls to
-your deployed URL could still spend your credits. Before sharing the site widely, add rate limiting
-(for example Vercel's firewall rules) or put the app behind a login.
+| Event | When | Properties |
+| --- | --- | --- |
+| `app_opened` | once per page load | `days_since_last_visit`, `stories` |
+| `story_started` | a new story is ready | `story_id`, `photos`, `players` |
+| `story_start_failed` | starting a story failed | `reason` |
+| `story_opened` | a saved story is opened | `story_id`, `turns`, `shared`, `days_since_last_played` |
+| `turn_played` | the narrator answered a turn | `story_id`, `turn`, `choice` (`suggested`/`own`), `shared` |
+| `invite_created` | a story was opened to friends | |
+| `world_joined` | someone joined with a code | |
+| `sign_in_link_sent` | a sign-in email was sent | |
+
+`story_id` is left out for shared worlds, whose ids contain the invite code.
+
+Useful first charts: **Retention** on `app_opened` (do people return after 1 and 7 days?), and a
+**Funnel** `story_started` → `turn_played` (turn ≥ 3) → `story_opened` on a later day.
 
 ## Painted-photo AI hook
 
@@ -148,9 +223,6 @@ filter. `stylizeWithAI()` is a placeholder where an OpenAI or Replicate image mo
 
 ## Notes
 
-- Memory text and painted photos are saved in `localStorage` (~70–150 KB each, so roughly 30+ memories
-  fit in the browser's ~5 MB limit). Depth maps and 360° worlds go in IndexedDB, which holds much more. If storage runs out, the app shows a notice and keeps the
-  memory for the current visit only.
-- The arrow buttons in the bottom corners move between memories; Esc returns to the map.
-- The depth model (~27 MB) downloads once from Hugging Face, and the browser caches it after that.
+- Solo stories and their pictures are saved in IndexedDB in the browser; worlds keep their text in
+  `localStorage`. If storage runs out, the app shows a notice.
 - Audio starts only after you turn on the soundscape, as browsers require.
