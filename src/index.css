@@ -1,12 +1,12 @@
 @import "tailwindcss";
 
 @theme {
-  /* Two families only: Playfair Display for headings and titles, Inter for everything else. */
-  --font-display: "Playfair Display", Georgia, serif;
+  /* Two families only: Cormorant Garamond for headings and titles, Inter for everything else. */
+  --font-display: "Cormorant Garamond", Georgia, serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-display);
 
-  /* One type scale (px): 12 · 14 · 16 · 18 · 20 · 24 · 30 · 36 · 60. Use only these steps. */
+  /* One type scale (px): 12 · 14 · 16 · 18 · 20 · 24 · 30 · 36 · 60 · 72. Use only these steps. */
   --text-xs: 0.75rem;
   --text-xs--line-height: 1.4;
   --text-sm: 0.875rem;
@@ -25,6 +25,8 @@
   --text-4xl--line-height: 1.15;
   --text-6xl: 3.75rem;
   --text-6xl--line-height: 1.05;
+  --text-7xl: 4.5rem;
+  --text-7xl--line-height: 1;
 
   --color-midnight: #12071f;
   --color-night: #1d0b2e;
@@ -57,7 +59,7 @@ body {
 }
 
 ::selection {
-  background: rgba(255, 95, 162, 0.4);
+  background: rgba(255, 226, 168, 0.35);
   color: #fff;
 }
 
@@ -78,14 +80,14 @@ body {
 /* Primary action button (kept under its old name so every screen picks it up) */
 .btn-lantern {
   position: relative;
-  background: linear-gradient(180deg, #ff74b0 0%, #ff4f97 55%, #e23b84 100%);
-  color: #fff;
+  background: #f7efe6;
+  color: #1d0b2e;
   font-weight: 600;
-  box-shadow: 0 10px 24px -10px rgba(255, 79, 151, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  transition: filter 0.2s ease, transform 0.15s ease;
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  transition: background 0.2s ease, transform 0.15s ease;
 }
 .btn-lantern:hover {
-  filter: brightness(1.08);
+  background: #fff;
 }
 .btn-lantern:active {
   transform: translateY(1px);
@@ -208,6 +210,35 @@ body {
 }
 .vn-choice:active {
   transform: translateY(1px) scale(0.99);
+}
+
+/* Home page: the warm gold button, title glow and night panel from the original landing */
+.btn-gold {
+  position: relative;
+  isolation: isolate;
+  background: radial-gradient(120% 160% at 50% 0%, #ffd58a 0%, #f5b85a 38%, #c9733a 100%);
+  color: #2a160a;
+  box-shadow:
+    0 0 0 1px rgba(255, 228, 170, 0.6) inset,
+    0 10px 30px -8px rgba(245, 160, 70, 0.7),
+    0 0 50px -6px rgba(245, 184, 90, 0.65);
+  transition: box-shadow 0.3s ease, filter 0.3s ease;
+}
+.btn-gold:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow:
+    0 0 0 1px rgba(255, 238, 200, 0.85) inset,
+    0 14px 40px -8px rgba(245, 160, 70, 0.85),
+    0 0 80px -4px rgba(245, 184, 90, 0.85);
+}
+.text-glow-gold {
+  text-shadow:
+    0 0 22px rgba(245, 184, 90, 0.45),
+    0 0 2px rgba(255, 232, 190, 0.6);
+}
+.night-panel {
+  background: linear-gradient(180deg, rgba(27, 24, 64, 0.92), rgba(10, 12, 34, 0.95));
+  border: 1px solid rgba(217, 179, 108, 0.2);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -407,14 +407,14 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
                     <Rich text={c} />
                   </motion.button>
                 ))}
-                <button type="button" onClick={() => setWriting(true)} className="inline-flex items-center gap-1.5 self-center rounded-full bg-black/45 px-4 py-1.5 text-sm text-white/80 backdrop-blur hover:text-white"><Pencil size={13} /> or say something else</button>
+                <button type="button" onClick={() => setWriting(true)} className="inline-flex items-center gap-1.5 self-center rounded-full bg-black/45 px-4 py-1.5 text-sm text-white/80 backdrop-blur hover:text-white"><Pencil size={13} /> Write your own</button>
               </motion.div>
             )}
           </AnimatePresence>
 
           {writing ? (
             <form onSubmit={(e) => { e.preventDefault(); act(); }} className="vn-frame vn-panel flex items-end gap-2 rounded-3xl p-3">
-              <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); act(); } if (e.key === 'Escape') setWriting(false); }} rows={2} maxLength={1500} placeholder={`What does ${me.name.split(' ')[0]} say or do?`} className="max-h-32 min-h-[52px] flex-1 resize-none bg-transparent px-2 py-1.5 text-base text-parchment placeholder:text-parchment/40 focus:outline-none" />
+              <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); act(); } if (e.key === 'Escape') setWriting(false); }} rows={2} maxLength={1500} placeholder="Say or do anything…" className="max-h-32 min-h-[52px] flex-1 resize-none bg-transparent px-2 py-1.5 text-base text-parchment placeholder:text-parchment/40 focus:outline-none" />
               <button type="submit" disabled={!draft.trim()} className="vn-choice rounded-full p-3.5 disabled:opacity-30" aria-label="Say it"><SendHorizontal size={18} /></button>
             </form>
           ) : (
@@ -454,7 +454,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
                   ))}
                 </section>
               ))}
-              <button type="button" onClick={() => setPanel(null)} className="btn-lantern mx-auto block rounded-full px-6 py-2.5 font-sans text-sm font-medium">Back to the scene</button>
+              <button type="button" onClick={() => setPanel(null)} className="btn-lantern mx-auto block rounded-full px-6 py-2.5 font-sans text-sm font-medium">Back</button>
             </div>
           </motion.div>
         )}
@@ -472,7 +472,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
                   </li>
                 ))}
               </ul>
-              <button type="button" onClick={() => { setRecap(null); setBeat(0); }} className="btn-lantern mt-7 rounded-full px-6 py-2.5 text-sm font-medium">Step back in</button>
+              <button type="button" onClick={() => { setRecap(null); setBeat(0); }} className="btn-lantern mt-7 rounded-full px-6 py-2.5 text-sm font-medium">Continue</button>
             </motion.div>
           </motion.div>
         )}
@@ -481,7 +481,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
             <motion.div initial={{ y: 20, scale: 0.97 }} animate={{ y: 0, scale: 1 }} className="w-full max-w-lg rounded-3xl border px-7 py-8 text-center" style={{ borderColor: `${mood.primary}44`, background: `linear-gradient(180deg, ${mood.bg[1]}f5, ${mood.bg[0]}fa)` }}>
               <h2 className="font-display text-3xl font-semibold text-parchment">Previously…</h2>
               <p className="mt-4 text-lg leading-relaxed text-parchment/85">{recap.narration}</p>
-              <button type="button" onClick={() => { setRecap(null); setBeat(0); }} className="btn-lantern mt-7 rounded-full px-6 py-2.5 text-sm font-medium">Step back in</button>
+              <button type="button" onClick={() => { setRecap(null); setBeat(0); }} className="btn-lantern mt-7 rounded-full px-6 py-2.5 text-sm font-medium">Continue</button>
             </motion.div>
           </motion.div>
         )}
