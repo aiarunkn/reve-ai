@@ -14,6 +14,7 @@ import { ambient } from '../services/ambientAudio';
 import { toBeats, placeSounds, segmentNarration } from '../services/scenes';
 import { sharedCode, loadShared, connectLive, identityFor } from '../services/sharedClient';
 import { previewOf, castOf } from '../shared/worldState';
+import { track, daysBetween, storyKey } from '../services/analytics';
 
 const pref = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch { return d; } };
 const setPref = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { /* private mode */ } };
@@ -99,6 +100,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
       }
       if (!alive || !s) return;
       setStory(s);
+      track('story_opened', { story_id: storyKey(s.id), turns: s.turns.length, shared: !!code, days_since_last_played: s.lastPlayedAt ? daysBetween(s.lastPlayedAt) : null });
       loadPlaceImages(storyId, s.bible.places.length).then((u) => { urls.push(...u); if (alive) setPlaces(u); });
       Promise.all(castOf(s).map((_, k) => getAsset(storyId, `portrait${k}`))).then((bs) => {
         const u = bs.map((b) => (b ? URL.createObjectURL(b) : null));
@@ -222,6 +224,7 @@ export default function StoryView({ storyId, onExit, onDelete, notify, onShare, 
       const shared = code ? { code, ...identityFor(code) } : null;
       const { narration, record, saveError } = await playTurn(story, actions, setLive, ctrl.signal, shared);
       if (!narration) throw new Error('The scene went quiet. Try again.');
+      track('turn_played', { story_id: storyKey(story.id), turn: story.turns.length, choice: text != null ? 'suggested' : 'own', shared: !!code });
       if (code) {
         // the server saved your turn for everyone: reload your view of the world
         if (saveError) notify?.(`Your scene played, but couldn’t be saved for the others (${saveError}).`);

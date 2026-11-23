@@ -187,6 +187,35 @@ Without it, stories still work with painted photos and gradients. Each story dra
 portraits once (roughly 6–10 images), plus any moments you choose to illustrate. Set
 `OPENAI_IMAGE_QUALITY=low` to spend less.
 
+## Analytics (PostHog)
+
+Used to learn whether people come back. Off unless `VITE_POSTHOG_KEY` is set.
+
+1. Create a free project at posthog.com and copy its **Project API key** (starts with `phc_`).
+2. Add `VITE_POSTHOG_KEY` to `.env.local` and to Vercel, then restart / redeploy. For an EU project, also
+   set `VITE_POSTHOG_HOST=https://eu.i.posthog.com`.
+3. In PostHog → Settings → Project, turn on **Discard client IP data**.
+
+Privacy: no cookies (an anonymous id in localStorage), no autocapture, no page views, no session
+recordings, Do Not Track respected, and never any story text, names, emails or invite codes.
+All of it lives in `src/services/analytics.js`.
+
+| Event | When | Properties |
+| --- | --- | --- |
+| `app_opened` | once per page load | `days_since_last_visit`, `stories` |
+| `story_started` | a new story is ready | `story_id`, `photos`, `players` |
+| `story_start_failed` | starting a story failed | `reason` |
+| `story_opened` | a saved story is opened | `story_id`, `turns`, `shared`, `days_since_last_played` |
+| `turn_played` | the narrator answered a turn | `story_id`, `turn`, `choice` (`suggested`/`own`), `shared` |
+| `invite_created` | a story was opened to friends | |
+| `world_joined` | someone joined with a code | |
+| `sign_in_link_sent` | a sign-in email was sent | |
+
+`story_id` is left out for shared worlds, whose ids contain the invite code.
+
+Useful first charts: **Retention** on `app_opened` (do people return after 1 and 7 days?), and a
+**Funnel** `story_started` → `turn_played` (turn ≥ 3) → `story_opened` on a later day.
+
 ## Painted-photo AI hook
 
 `generateMemoryImage()` in `src/services/memoryGenerator.js` paints photos with a local oil-paint

@@ -16,6 +16,7 @@ import { loadStoryIndex, saveStory, deleteStory, savePlaceImage, storyFromBible 
 import { beginStory } from './services/storyClient';
 import { paintNow, ImagesNotConfigured } from './services/storyArt';
 import { useHashRoute } from './hooks/useHashRoute';
+import { track, trackAppOpened } from './services/analytics';
 
 const WorldView = lazy(() => import('./components/WorldView'));
 const StoryView = lazy(() => import('./components/StoryView'));
@@ -50,6 +51,9 @@ export default function App() {
 
   const world = route.view === 'world' ? worlds.find((w) => w.id === route.id) || null : null;
   const storyEntry = route.view === 'story' ? stories.find((s) => s.id === route.id) || null : null;
+
+  // one "app opened" per visit, so returns can be counted
+  useEffect(() => { trackAppOpened(loadStoryIndex().length); }, []);
 
   // unknown world or story id in the URL → back home
   useEffect(() => {
@@ -160,10 +164,12 @@ export default function App() {
       await Promise.race([art, wait(75000)]);
       await saveStory(story);
       setStories(loadStoryIndex());
+      track('story_started', { story_id: id, photos: files.length, players: cast.length });
       mapScroll.current = 0;
       go({ view: 'story', id });
     } catch (err) {
       console.error(err);
+      track('story_start_failed', { reason: err instanceof RateLimited ? 'rate_limited' : err instanceof NotConfiguredError ? 'not_configured' : 'error' });
       if (err instanceof RateLimited) handleRateLimit(err);
       else setToast(err instanceof NotConfiguredError
         ? 'Stories need a narrator: add ANTHROPIC_API_KEY on the server (Vercel → Settings → Environment Variables), then redeploy.'
@@ -178,6 +184,7 @@ export default function App() {
   const openStory = async (story, color) => {
     try {
       const view = await shareStory(story, color);
+      track('invite_created');
       setStories(loadStoryIndex());
       setInviteFor(view.id);
       go({ view: 'story', id: view.id }, { replace: true });
@@ -264,6 +271,7 @@ export default function App() {
         onWeave={(mood) => setWeaving(mood ? { mood, stage: 'arrive' } : null)}
         onRateLimited={handleRateLimit}
         onJoined={(view) => {
+          track('world_joined');
           setJoining(null);
           setStories(loadStoryIndex());
           mapScroll.current = 0;

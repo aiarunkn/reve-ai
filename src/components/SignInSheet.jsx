@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X, Mail } from 'lucide-react';
 import { sendMagicLink } from '../services/authClient';
+import { track } from '../services/analytics';
 
 /**
  * "Keep dreaming — sign in with your email." Magic link, no password. Opened either from the
@@ -30,6 +31,7 @@ export default function SignInSheet({ open, reason, onClose }) {
     try {
       await sendMagicLink(value);
       setSent(true);
+      track('sign_in_link_sent');
     } catch (err) {
       setError(err.message || 'Couldn’t send the link. Try again?');
     } finally {

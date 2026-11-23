@@ -40,6 +40,7 @@ function PrivacySheet({ open, onClose }) {
             <h2 id="privacy-title" className="font-display text-3xl italic text-parchment">Privacy</h2>
             <ul className="mt-5 space-y-3 text-sm leading-relaxed text-parchment/75">
               <li>Your stories stay in this browser.</li>
+              <li>We count anonymous visits and turns, never what you write, to see what people enjoy. No cookies.</li>
               <li>Each turn goes to the narrator, Claude by Anthropic, to write what happens next. We don’t keep it.</li>
               <li>A shared world is stored so friends with its code can join.</li>
               <li>No password. Sign in with an email link only if you want to.</li>
